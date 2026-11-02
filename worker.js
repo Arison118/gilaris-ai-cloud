@@ -258,6 +258,7 @@ export class QuotaManager extends DurableObject {
   constructor(ctx, env) {
     super(ctx, env);
 
+    this.ctx = ctx;
     this.sql = ctx.storage.sql;
 
     // Mamorona ny tabilao raha mbola tsy misy.
@@ -390,64 +391,66 @@ export class QuotaManager extends DurableObject {
   async commit(id, usage) {
     const now = Date.now();
 
-    this.cleanup(now);
+    return this.ctx.storage.transactionSync(() => {
+      this.cleanup(now);
 
-    const existing = this.sql.exec(
-      `SELECT id FROM quota_requests
-       WHERE id = ? AND status = 'pending'`,
-      id
-    ).toArray()[0];
+      const existing = this.sql.exec(
+        `SELECT id FROM quota_requests
+         WHERE id = ? AND status = 'pending'`,
+        id
+      ).toArray()[0];
 
-    if (!existing) {
-      throw new Error(
-        "Quota reservation not found or expired."
-      );
-    }
+      if (!existing) {
+        throw new Error(
+          "Quota reservation not found or expired."
+        );
+      }
 
-    // Mitahiry ny Token Usage.
-    this.sql.exec(
-      `INSERT INTO usage_logs (
+      // Mitahiry ny Token Usage.
+      this.sql.exec(
+        `INSERT INTO usage_logs (
+          id,
+          created_at,
+          groq_api_calls,
+          prompt_tokens,
+          completion_tokens,
+          total_tokens,
+          models_json
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
         id,
-        created_at,
-        groq_api_calls,
-        prompt_tokens,
-        completion_tokens,
-        total_tokens,
-        models_json
-      ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      id,
-      now,
-      Number(usage.groq_api_calls || 0),
-      Number(usage.prompt_tokens || 0),
-      Number(usage.completion_tokens || 0),
-      Number(usage.total_tokens || 0),
-      JSON.stringify(usage.models || [])
-    );
+        now,
+        Number(usage.groq_api_calls || 0),
+        Number(usage.prompt_tokens || 0),
+        Number(usage.completion_tokens || 0),
+        Number(usage.total_tokens || 0),
+        JSON.stringify(usage.models || [])
+      );
 
-    // Manomboka eto ny 24 ora ho an'ilay request mahomby.
-    this.sql.exec(
-      `UPDATE quota_requests
-       SET status = 'committed',
-           created_at = ?,
-           expires_at = ?
-       WHERE id = ? AND status = 'pending'`,
-      now,
-      now + QUOTA_WINDOW_MS,
-      id
-    );
+      // Manamarina ny quota.
+      this.sql.exec(
+        `UPDATE quota_requests
+         SET status = 'committed',
+             created_at = ?,
+             expires_at = ?
+         WHERE id = ? AND status = 'pending'`,
+        now,
+        now + QUOTA_WINDOW_MS,
+        id
+      );
 
-    const counts = this.getCounts(now);
+      const counts = this.getCounts(now);
 
-    return {
-      success: true,
-      limit: QUOTA_LIMIT,
-      used: counts.used,
-      pending: counts.pending,
-      remaining: Math.max(
-        0,
-        QUOTA_LIMIT - counts.used - counts.pending
-      )
-    };
+      return {
+        success: true,
+        limit: QUOTA_LIMIT,
+        used: counts.used,
+        pending: counts.pending,
+        remaining: Math.max(
+          0,
+          QUOTA_LIMIT - counts.used - counts.pending
+        )
+      };
+    });
   }
 
   // ----------------------------------------------------------
