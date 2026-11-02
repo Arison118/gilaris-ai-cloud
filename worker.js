@@ -469,6 +469,66 @@ export class QuotaManager extends DurableObject {
     };
   }
 
+    async usageHistory(limit = 20) {
+    const now = Date.now();
+    this.cleanup(now);
+
+    const summary = this.sql.exec(
+      `SELECT
+        COUNT(*) AS requests,
+        COALESCE(SUM(groq_api_calls), 0) AS groq_api_calls,
+        COALESCE(SUM(prompt_tokens), 0) AS prompt_tokens,
+        COALESCE(SUM(completion_tokens), 0) AS completion_tokens,
+        COALESCE(SUM(total_tokens), 0) AS total_tokens
+       FROM usage_logs`
+    ).toArray()[0];
+
+    const rows = this.sql.exec(
+      `SELECT
+        id,
+        created_at,
+        groq_api_calls,
+        prompt_tokens,
+        completion_tokens,
+        total_tokens,
+        models_json
+       FROM usage_logs
+       ORDER BY created_at DESC
+       LIMIT ?`,
+      limit
+    ).toArray();
+
+    return {
+      period_hours: 24,
+      summary: {
+        requests: Number(summary?.requests || 0),
+        groq_api_calls: Number(summary?.groq_api_calls || 0),
+        prompt_tokens: Number(summary?.prompt_tokens || 0),
+        completion_tokens: Number(summary?.completion_tokens || 0),
+        total_tokens: Number(summary?.total_tokens || 0)
+      },
+      recent: rows.map(row => {
+        let models = [];
+
+        try {
+          models = JSON.parse(row.models_json || "[]");
+        } catch {
+          models = [];
+        }
+
+        return {
+          id: row.id,
+          created_at: Number(row.created_at),
+          groq_api_calls: Number(row.groq_api_calls),
+          prompt_tokens: Number(row.prompt_tokens),
+          completion_tokens: Number(row.completion_tokens),
+          total_tokens: Number(row.total_tokens),
+          models
+        };
+      })
+    };
+    }
+
   // ----------------------------------------------------------
   // MAMERINA NY SATAN'NY QUOTA
   // ----------------------------------------------------------
@@ -864,6 +924,38 @@ export default {
           service: "GILARIS AI",
           version: "1.0"
         });
+      }
+
+            // --------------------------------------------------------
+      // GET USAGE HISTORY — 24 HOURS
+      // --------------------------------------------------------
+
+      if (url.pathname === "/api/usage") {
+        try {
+          const quota = getQuotaStub(env);
+          const usage = await quota.usageHistory(20);
+
+          return jsonResponse(200, {
+            success: true,
+            usage
+          });
+        } catch (error) {
+          console.error(
+            "[GILARIS USAGE HISTORY ERROR]",
+            error
+          );
+
+          return jsonResponse(
+            error instanceof APIError
+              ? error.status
+              : 503,
+            {
+              error:
+                error.message ||
+                "Tsy azo vakina ny tantaran'ny Token Usage."
+            }
+          );
+        }
       }
 
       if (url.pathname === "/api/quota") {
