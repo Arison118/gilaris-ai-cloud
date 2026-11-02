@@ -275,6 +275,25 @@ export class QuotaManager extends DurableObject {
       CREATE INDEX IF NOT EXISTS idx_quota_status_created
       ON quota_requests(status, created_at)
     `);
+    
+    // Tabilao hitahirizana ny Token Usage.
+    this.sql.exec(`
+      CREATE TABLE IF NOT EXISTS usage_logs (
+        id TEXT PRIMARY KEY,
+        created_at INTEGER NOT NULL,
+        groq_api_calls INTEGER NOT NULL,
+        prompt_tokens INTEGER NOT NULL,
+        completion_tokens INTEGER NOT NULL,
+        total_tokens INTEGER NOT NULL,
+        models_json TEXT NOT NULL
+      )
+    `);
+
+    // Index hanatsarana ny fikarohana Usage.
+    this.sql.exec(`
+      CREATE INDEX IF NOT EXISTS idx_usage_created
+      ON usage_logs(created_at)
+    `);
   }
 
   // ----------------------------------------------------------
@@ -361,7 +380,7 @@ export class QuotaManager extends DurableObject {
   // MANAMARINA NY REQUEST REHEFA MAHOMBY
   // ----------------------------------------------------------
 
-  async commit(id) {
+  async commit(id, usage) {
     const now = Date.now();
 
     this.cleanup(now);
@@ -377,6 +396,26 @@ export class QuotaManager extends DurableObject {
         "Quota reservation not found or expired."
       );
     }
+
+    // Mitahiry ny Token Usage.
+    this.sql.exec(
+      `INSERT INTO usage_logs (
+        id,
+        created_at,
+        groq_api_calls,
+        prompt_tokens,
+        completion_tokens,
+        total_tokens,
+        models_json
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      id,
+      now,
+      Number(usage.groq_api_calls || 0),
+      Number(usage.prompt_tokens || 0),
+      Number(usage.completion_tokens || 0),
+      Number(usage.total_tokens || 0),
+      JSON.stringify(usage.models || [])
+    );
 
     // Manomboka eto ny 24 ora ho an'ilay request mahomby.
     this.sql.exec(
@@ -972,11 +1011,23 @@ export default {
         : await answerText(message, history, env);
 
       // ------------------------------------------------------
-      // COMMIT QUOTA AFTER SUCCESS
+      // PREPARE TOKEN USAGE
+      // ------------------------------------------------------
+
+      const usageRecord = {
+        groq_api_calls: result.groq_api_calls,
+        prompt_tokens: result.usage.prompt_tokens,
+        completion_tokens: result.usage.completion_tokens,
+        total_tokens: result.usage.total_tokens,
+        models: result.models
+      };
+
+      // ------------------------------------------------------
+      // COMMIT QUOTA AND SAVE TOKEN USAGE
       // ------------------------------------------------------
 
       const quotaResult =
-        await quota.commit(reservationId);
+        await quota.commit(reservationId, usageRecord);
 
       reservationId = null;
 
@@ -986,15 +1037,7 @@ export default {
 
       return jsonResponse(200, {
         reply: result.reply,
-
-        usage: {
-          groq_api_calls: result.groq_api_calls,
-          prompt_tokens: result.usage.prompt_tokens,
-          completion_tokens: result.usage.completion_tokens,
-          total_tokens: result.usage.total_tokens,
-          models: result.models
-        },
-
+        usage: usageRecord,
         quota: quotaResult
       });
 
