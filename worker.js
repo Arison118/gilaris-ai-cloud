@@ -308,6 +308,13 @@ export class QuotaManager extends DurableObject {
       now - QUOTA_WINDOW_MS,
       now
     );
+
+    // Manadio Token Usage mihoatra ny 24 ora.
+    this.sql.exec(
+      `DELETE FROM usage_logs
+       WHERE created_at <= ?`,
+      now - QUOTA_WINDOW_MS
+    );
   }
 
   // ----------------------------------------------------------
