@@ -1,0 +1,39 @@
+name: GILARIS AI - Secure Test Deploy
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - secure-auth-test
+    paths:
+      - 'worker.secure.js'
+      - 'wrangler.secure.jsonc'
+      - '.github/workflows/secure-deploy-test.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  deploy-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Check JavaScript syntax
+        run: node --check worker.secure.js
+
+      - name: Setup Wrangler
+        run: npm install --global wrangler@4.160.0
+
+      - name: Deploy Secure Test Worker
+        run: wrangler deploy --config wrangler.secure.jsonc
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
