@@ -1,0 +1,21 @@
+
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "gilaris-ai-cloud-v1",
+  "main": "worker.secure.js",
+  "compatibility_date": "2026-10-31",
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "GILARIS_QUOTA",
+        "class_name": "QuotaManager"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["QuotaManager"]
+    }
+  ]
+}

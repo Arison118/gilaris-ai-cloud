@@ -1,0 +1,36 @@
+name: GILARIS AI - Secure Worker Dry Run
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - secure-auth-test
+    paths:
+      - 'worker.secure.js'
+      - 'wrangler.secure.jsonc'
+      - '.github/workflows/secure-dry-run.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  dry-run:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Check JavaScript syntax
+        run: node --check worker.secure.js
+
+      - name: Setup Wrangler
+        run: npm install --global wrangler@4.160.0
+
+      - name: Cloudflare Worker dry-run
+        run: wrangler deploy --dry-run --outdir=dist --config=wrangler.secure.jsonc
