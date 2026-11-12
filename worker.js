@@ -71,13 +71,62 @@ FITSIPIKA:
 6. Aza mamorona filazana momba ny collage na sary maromaro.
 7. Aza manova zavatra voalaza ho tsy azo antoka ho lasa azo antoka.
 8. Ataovy voalamina sy mora vakina.
-9. Avereno ny tatitra voahitsy ihany amin'ity rafitra ity:
-   A. Zavatra hita voalaza ao amin'ny tatitra
-   B. Zavatra tsy azo antoka
-   C. Famaritana fohy voahitsy
+9. Avereno ny tatitra voahitsy ihany amin'ity rafitra ity (lohateny Markdown misy isa):
+   ### 1. Zavatra hita mazava
+   ### 2. Zavatra tsy azo antoka
+   ### 3. Famaritana fohy voahitsy
+   Ao ambanin'ny lohateny tsirairay dia mampiasà lisitra amin'ny « - ».
 
 TATITRA HOVAINA:
 `;
+
+// ============================================================
+// FOMBA FANAMPIANA (MARKDOWN MILOKO) — RULES 25 TO 31
+// ============================================================
+
+const FORMAT_RULES =
+"FOMBA FANAMPIANA NY VALINY (ny tranokala dia mampiseho Markdown miloko; " +
+"ireto fitsipika ireto no mandaha ny fitsipika 2 sy 11): " +
+
+"\n25. Hafatra fohy na fiarahabana: valio amin'ny fehezanteny vitsy, " +
+"tsy misy lohateny na lisitra. " +
+
+"\n26. Fanazavana, torolalana na lesona: zarao ho fizarana misy lohateny " +
+"misy isa, ohatra: " +
+"\n### 1. Mametraka ny éditeur" +
+"\n### 2. Mamorona tetikasa" +
+"\nAmin'ny lohateny tsirairay dia mampiasà lisitra amin'ny « - » " +
+"(hevitra iray isaky ny andalana). " +
+"Ny lisitra anaty lisitra dia asiana elanelana 2 eo alohany. " +
+
+"\n27. Teny teknika (anaran'ny rakitra, baiko, fonction, balise, variable, " +
+"propriété): atao anaty accents graves foana, ohatra " +
+"`index.html`, `console.log()`, `<div>`, `padding`. " +
+
+"\n28. Teny fototra, hevitra tsy maintsy tadidiana ary anaran'ny bokotra na menu: " +
+"atao anaty guillemets frantsay, ohatra « New File », « responsive », « Settings ». " +
+"Ampiasao amin'ny teny manan-danja ihany (3 hatramin'ny 8 isaky ny valiny), " +
+"fa tsy amin'ny teny rehetra. " +
+
+"\n29. Matavy (**ohatra**): hevitra 1 ka hatramin'ny 3 tena ilaina ihany " +
+"isaky ny valiny. Aza apetraka accents graves ao anatin'ny matavy. " +
+
+"\n30. Kaody: apetraho foana anaty bloc misy anaran'ny fiteny " +
+"(```html, ```css, ```javascript, ```python). Omeo kaody feno azo adika " +
+"avy hatrany, dia manazava fohy aorian'izay. " +
+
+"\n31. Aza mampiasa: tableau (afa-tsy rehefa angatahina), paragrafy mihoatra " +
+"ny 4 andalana, balise HTML ao anatin'ny lahatsoratra, ary guillemets mahitsy " +
+"hampiavaka teny (« » no ampiasaina). Raha mety dia ataovy fehiny fohy " +
+"na fanontaniana mahasoa.";
+
+const IMAGE_FORMAT_RULES =
+"FOMBA FANAMPIANA: ny tranokala dia mampiseho Markdown miloko. " +
+"Ampiasao ny lohateny ### misy isa ary lisitra amin'ny « - ». " +
+"Teny teknika, anaran'ny rakitra na kaody fohy: atao anaty accents graves, " +
+"ohatra `index.html`. Teny fototra na anaran'ny bokotra: atao anaty " +
+"guillemets frantsay « ». Kaody maromaro andalana: bloc misy anaran'ny fiteny. " +
+"Aza mampiasa tableau na balise HTML.";
 
 // ============================================================
 // SYSTEM PROMPT — RULES 1 TO 24
@@ -94,10 +143,10 @@ const SYSTEM_PROMPT =
 "1. Manorata amin'ny fomba voajanahary, matihanina, " +
 "madio ary mora vakina. " +
 
-"2. Aza mampiasa Markdown amin'ny lahatsoratra mahazatra. " +
-"Aza mampiasa lohateny misy ## na ###, " +
-"soratra misy ** na __, tsipika ---, " +
-"tabilao misy |, na tag HTML toy ny <br>. " +
+"2. Ny tranokala dia mampiseho Markdown, ka afaka mampiasa lohateny ### misy isa, " +
+"lisitra amin'ny - ary soratra matavy **ohatra** araka ny fitsipika 25 ka hatramin'ny 31. " +
+"Aza mampiasa tsipika ---, tabilao misy | (afa-tsy rehefa angatahina), " +
+"na tag HTML toy ny <br>. " +
 
 "3. Aza mametraka marika sy endrika tsy ilaina. " +
 "Ampiasao fehezanteny feno, andalana mazava, " +
@@ -207,6 +256,7 @@ const SYSTEM_PROMPT =
 "amin'ny fomba tsotra sy sariaka. " +
 "Rehefa fanontaniana mivantana no apetraka dia valio aloha " +
 "ny fanontaniana fa aza manampy fiarahabana lava tsy ilaina.";
+FORMAT_RULES;
 
 // ============================================================
 // ERROR HANDLING AND RESPONSE HELPERS
@@ -244,7 +294,7 @@ function cleanV15(text) {
   }
 
   return text
-    .replace(/[ \t]{2,}/g, " ")
+    .replace(/([^\s])[ \t]{2,}/g, "$1 ")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
   }
@@ -818,7 +868,8 @@ async function analyzeImage(dataUrl, env) {
         role: "system",
         content:
           "Mpandrindra lahatsoratra amin'ny teny Malagasy ianao. " +
-          "Aza manampy zava-misy tsy ao amin'ny loharano."
+          "Aza manampy zava-misy tsy ao amin'ny loharano. " +
+          IMAGE_FORMAT_RULES
       },
       {
         role: "user",
