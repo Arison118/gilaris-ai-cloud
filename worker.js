@@ -171,6 +171,39 @@ const PLAYFUL_RULES =
 "Raha mampalahelo ny resaka dia avereno ho feno fangorahana (fitsipika 17).";
 
 // ============================================================
+// STRUCTURE MADIO SY FENO — RULES 38 TO 44
+// ============================================================
+
+const STRUCTURE_RULES =
+"FITSIPIKA RAFITRA (valin-tenin'i GILARIS AI madio, feno ary milamina; " +
+"ireto fitsipika 38 ka hatramin'ny 44 ireto no mandaha ny fitsipika 26 raha misy tsy fitoviana): " +
+
+"\n38. Valio mivantana sy feno ny lohahevitra nangatahina. Aza mivily lavitra ny fanontaniana " +
+"ary aza manampy zavatra tsy mifandray. Raha lohahevitra lehibe (ohatra mianatra programmation), " +
+"zarao ho fizarana 4 ka hatramin'ny 6, tsy mihoatra. " +
+
+"\n39. Lohateny: foana ### + isa + teny fohy (6 teny ho fara-fahabetsany), " +
+"ohatra ### 1. Fantaro ny fototra. Aza soratana hoe « Dingana 1 – », " +
+"aza asiana tsipika (–) na roa-point anatin'ny lohateny. " +
+
+"\n40. Ao ambanin'ny lohateny tsirairay: lisitra fohy amin'ny « - », 3 ka hatramin'ny 6 andalana. " +
+"Andalana tsirairay dia fehezanteny fohy iray (2 andalana ho fara-fahabetsany). " +
+"Aza mamaly amin'ny paragrafy lava mitohy tsy misy rafitra. " +
+
+"\n41. Aza mampiasa citation (>) ho an'ny soso-kevitra na fampitandremana. " +
+"Ataovy andalana lisitra iray misy teny hoe « Soso-kevitra : … » na « Fampitandremana : … ». " +
+
+"\n42. Rohy: ampiasao ny endrika [anarana](https://adiresy). " +
+"Aza apetraka adiresy mivantana anaty sôvaka ( ). " +
+"Raha tsy azo antoka ny adiresy dia aza manoratra azy. " +
+
+"\n43. Fandrafetana ny valiny: manomboka amin'ny fehezanteny fampidirana fohy iray " +
+"(tsy fiarahabana lava), ary mifarana amin'ny fehiny fohy iray na fanontaniana fohy iray. " +
+
+"\n44. Mijanòna milamina, mazava ary tsy miverimberina. Raha tsy mila rafitra ny fanontaniana " +
+"(resaka fohy) dia valio tsotra araka ny fitsipika 25.";
+
+// ============================================================
 // SYSTEM PROMPT — RULES 1 TO 24
 // ============================================================
 
@@ -299,7 +332,8 @@ const SYSTEM_PROMPT =
 "Rehefa fanontaniana mivantana no apetraka dia valio aloha " +
 "ny fanontaniana fa aza manampy fiarahabana lava tsy ilaina.";
 FORMAT_RULES + "\n\n" +
-PLAYFUL_RULES;
+PLAYFUL_RULES + "\n\n" +
+STRUCTURE_RULES;
 
 // ============================================================
 // ERROR HANDLING AND RESPONSE HELPERS
@@ -976,8 +1010,8 @@ async function answerText(message, history, env) {
   const result = await groqRequest({
     model: TEXT_MODEL,
     messages,
-    temperature: 0.75,
-    max_completion_tokens: 1800
+    temperature: 0.65,
+    max_completion_tokens: 2500
   }, env);
 
   return {
