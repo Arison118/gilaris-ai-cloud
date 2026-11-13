@@ -1015,11 +1015,16 @@ async function makeSearchQuery(message, history, env) {
     timeZone: "Indian/Antananarivo"
   });
 
-  const recent = (Array.isArray(history) ? history : [])
-    .filter(item => item && item.role === "user" && typeof item.content === "string")
-    .slice(-2)
-    .map(item => item.content.replace(/\s+/g, " ").slice(0, 200))
-    .join(" | ");
+  // Ny resaka teo aloha dia ilaina ihany raha fohy ny hafatra (ohatra « ary ny faharoa? »)
+  const isShortFollowUp = fallback.length < 45;
+
+  const recent = isShortFollowUp
+    ? (Array.isArray(history) ? history : [])
+        .filter(item => item && item.role === "user" && typeof item.content === "string")
+        .slice(-1)
+        .map(item => item.content.replace(/\s+/g, " ").slice(0, 200))
+        .join(" | ")
+    : "";
 
   try {
     const result = await groqRequest({
@@ -1031,14 +1036,18 @@ async function makeSearchQuery(message, history, env) {
             "Ianao dia mpamorona fanontaniana fikarohana ho an'ny moteur de recherche. " +
             "Avereno ANDALANA IRAY ihany: fanontaniana fohy amin'ny teny frantsay " +
             "(na anglisy raha tsara kokoa), tsy misy fehezanteny hafa, tsy misy guillemets. " +
-            "Ampiasao ny anarana marina sy teny fototra 4 ka hatramin'ny 10. " +
-            "Daty androany: " + today + ". Raha mila vaovao dia ampio ny taona ankehitriny."
+            "Ny HAFATRA FARANY no laharam-pahamarinana: tazomy tsara ny anarana marina " +
+            "sy ny lohahevitra voalaza ao aminy (ohatra anaran'ny boky, olona, toerana). " +
+            "Aza ampifangaroina amin'ny resaka teo aloha raha lohahevitra vaovao ny hafatra farany. " +
+            "Ampiasao ny resaka teo aloha ihany raha tsy mazava ny hafatra farany. " +
+            "Teny fototra 4 ka hatramin'ny 10. " +
+            "Daty androany: " + today + ". Ampio ny taona ankehitriny ihany raha mila vaovao."
         },
         {
           role: "user",
           content:
-            (recent ? "Resaka teo aloha: " + recent + "\n" : "") +
-            "Hafatra: " + fallback
+            (recent ? "Resaka teo aloha (fanazavana fotsiny): " + recent + "\n" : "") +
+            "Hafatra farany: " + fallback
         }
       ],
       temperature: 0,
@@ -1131,7 +1140,10 @@ function buildSearchContext(results, query) {
     "Aza lazaina ny dingan'ny fikarohana, aza manoratra hoe « ahoana no nahazoako », ary aza manao tableau. " +
     "2) Laharam-pahamarinana: loharano vaovao indrindra aloha, ary lazao ny daty raha misy. " +
     "3) Raha taloha loatra, tsy ampy na mifanipaka ny loharano dia lazao fa mety efa niova ny zava-misy. " +
-    "4) Amin'ny farany dia asio « Loharano » misy rohy 2 ka hatramin'ny 4 amin'ny endrika [anarana tranonkala](adiresy). " +
+    "Raha tsy mifandray amin'ny fanontaniana FARANY ny loharano dia lazao fa tsy hita ny valiny, " +
+    "ary aza asehoy ny rohy tsy mifandray. " +
+    "4) Amin'ny farany dia asio « Loharano » misy rohy 2 ka hatramin'ny 4 amin'ny endrika [anarana tranonkala](adiresy), " +
+    "ho an'ny loharano mifandray ihany. " +
     "5) Aza mamorona zavatra tsy ao amin'ny loharano. " +
     results.map((item, i) =>
       "\n[" + (i + 1) + "] " + item.title +
