@@ -1166,6 +1166,7 @@ async function answerText(message, history, env) {
     }
   }
 
+  let searched = false;
   let searchQuery = "";
 
   if (needsWebSearch(message)) {
