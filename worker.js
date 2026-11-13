@@ -1011,6 +1011,118 @@ function needsWebSearch(message) {
   return FRESH_INFO_RE.test(text) || FACTUAL_QUESTION_RE.test(text);
 }
 
+
+// ============================================================
+// GILARIS AI — IMAGE SEARCH & IMAGE GENERATION (ADD-ON)
+// Tsy manolo na manova ny WEB SEARCH — TAVILY V2
+// ============================================================
+
+const IMAGE_SEARCH_RE =
+  /(?:asehoy|asehoy\s+ahy|sary|sariny|sarin(?:y|a)|image|images|photo|photos|picture|pictures|illustration|montre[- ]moi|affiche[- ]moi|show\s+(?:me\s+)?(?:an?\s+)?(?:image|photo|picture)|find\s+(?:an?\s+)?(?:image|photo|picture))/i;
+
+const IMAGE_GENERATION_RE =
+  /(?:mamor[oò]na\s+(?:sary|image)|mamorony\s+(?:sary|image)|sary\s+vaovao|g[eé]n[eè]re(?:r)?\s+(?:une\s+)?image|cr[eé]e(?:r)?\s+(?:une\s+)?image|create\s+(?:an?\s+)?image|generate\s+(?:an?\s+)?image|draw\s+(?:me\s+)?(?:an?\s+)?|dessine(?:-moi)?\s+)/i;
+
+function isImageGenerationRequest(message) {
+  return IMAGE_GENERATION_RE.test(String(message || ""));
+}
+
+async function commonsImageSearch(query) {
+  const params = new URLSearchParams({
+    action: "query",
+    generator: "search",
+    gsrsearch: String(query || "").slice(0, 180),
+    gsrnamespace: "6",
+    gsrlimit: "4",
+    prop: "imageinfo",
+    iiprop: "url|extmetadata",
+    iiextmetadatafilter: "LicenseShortName",
+    iiurlwidth: "900",
+    format: "json",
+    origin: "*"
+  });
+
+  try {
+    const response = await fetch(
+      "https://commons.wikimedia.org/w/api.php?" + params.toString(),
+      {
+        headers: {
+          "Accept": "application/json",
+          "User-Agent": "GILARIS-AI/1.0"
+        },
+        signal: AbortSignal.timeout(7000)
+      }
+    );
+
+    if (!response.ok) return [];
+
+    const data = await response.json();
+    const pages = Object.values(data?.query?.pages || {});
+
+    return pages.map(page => {
+      const info = page?.imageinfo?.[0];
+      const imageUrl = info?.thumburl || info?.url || "";
+      const pageUrl = info?.descriptionurl || "";
+
+      if (!/^https:\/\/upload\.wikimedia\.org\//i.test(imageUrl)) {
+        return null;
+      }
+
+      if (!/^https:\/\/commons\.wikimedia\.org\//i.test(pageUrl)) {
+        return null;
+      }
+
+      const rawLicense =
+        info?.extmetadata?.LicenseShortName?.value ||
+        "Licence à vérifier";
+
+      const license = String(rawLicense)
+        .replace(/<[^>]*>/g, " ")
+        .replace(/\s+/g, " ")
+        .trim()
+        .slice(0, 90);
+
+      return {
+        title: String(page.title || "Image Wikimedia Commons")
+          .replace(/^File:/, "")
+          .slice(0, 140),
+        url: imageUrl,
+        pageUrl,
+        license
+      };
+    }).filter(Boolean).slice(0, 4);
+  } catch (error) {
+    console.warn("[GILARIS IMAGE SEARCH]", error?.message || error);
+    return [];
+  }
+}
+
+async function generateImage(prompt, env) {
+  if (!env.AI || typeof env.AI.run !== "function") {
+    throw new APIError(
+      "Tsy mbola mifandray amin'ny Workers AI ny binding AI.",
+      503
+    );
+  }
+
+  const result = await env.AI.run(
+    "@cf/black-forest-labs/flux-1-schnell",
+    {
+      prompt: String(prompt || "").slice(0, 1800),
+      steps: 4
+    }
+  );
+
+  if (!result || typeof result.image !== "string" || !result.image) {
+    throw new APIError(
+      "Tsy nahazo sary avy amin'ny image generation.",
+      502
+    );
+  }
+
+  return "data:image/jpeg;base64," + result.image;
+}
+
 // Mamadika ny hafatra lava ho fanontaniana fohy ho an'ny fikarohana
 async function makeSearchQuery(message, history, env) {
   const fallback = String(message).replace(/\s+/g, " ").trim().slice(0, 200);
@@ -1184,6 +1296,8 @@ async function answerText(message, history, env) {
 
   let searched = false;
   let searchQuery = "";
+  let images = [];
+  let generatedImage = null;
 
   if (needsWebSearch(message)) {
     searchQuery = await makeSearchQuery(message, history, env);
@@ -1203,6 +1317,16 @@ async function answerText(message, history, env) {
     }
   }
 
+  // Ny image search dia fanampiny; tsy manova ny valin'ny Tavily.
+  if (IMAGE_SEARCH_RE.test(message) && !isImageGenerationRequest(message)) {
+    images = await commonsImageSearch(searchQuery || message);
+  }
+
+  // Ny génération dia atao amin'ny Workers AI.
+  if (isImageGenerationRequest(message)) {
+    generatedImage = await generateImage(message, env);
+  }
+
   messages.push({
     role: "user",
     content: message
@@ -1219,6 +1343,8 @@ async function answerText(message, history, env) {
     reply: result.answer,
     web_search: searched,
     search_query: searchQuery,
+    images,
+    generatedImage,
     groq_api_calls: 1,
     models: [result.model],
     usage: result.usage
@@ -1470,6 +1596,8 @@ export default {
 
       return jsonResponse(200, {
         reply: result.reply,
+        images: Array.isArray(result.images) ? result.images : [],
+        generatedImage: result.generatedImage || null,
         usage: usageRecord,
         quota: quotaResult
       });
