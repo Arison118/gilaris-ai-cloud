@@ -1123,6 +1123,30 @@ async function generateImage(prompt, env) {
   return "data:image/jpeg;base64," + result.image;
 }
 
+// Mamadika ny hafatra ho prompt anglisy mazava ho an'ny Flux
+async function makeImagePrompt(message, env) {
+  try {
+    const r = await groqRequest({
+      model: TEXT_MODEL,
+      messages: [
+        {
+          role: "system",
+          content:
+            "Convert the user's request (any language) into ONE detailed English " +
+            "text-to-image prompt (max 80 words): subject, style, lighting, colors, " +
+            "composition, high quality. Output ONLY the prompt, no quotes, no explanation."
+        },
+        { role: "user", content: String(message).slice(0, 1500) }
+      ],
+      temperature: 0.5,
+      max_completion_tokens: 200
+    }, env);
+    return (r.answer || "").trim() || message;
+  } catch {
+    return message; // raha tsy mandeha dia ilay hafatra mivantana
+  }
+}
+
 // Mamadika ny hafatra lava ho fanontaniana fohy ho an'ny fikarohana
 async function makeSearchQuery(message, history, env) {
   const fallback = String(message).replace(/\s+/g, " ").trim().slice(0, 200);
@@ -1324,7 +1348,17 @@ async function answerText(message, history, env) {
 
   // Ny génération dia atao amin'ny Workers AI.
   if (isImageGenerationRequest(message)) {
-    generatedImage = await generateImage(message, env);
+    const imagePrompt = await makeImagePrompt(message, env);
+    generatedImage = await generateImage(imagePrompt, env);
+
+    messages.push({
+      role: "system",
+      content:
+        "L'image demandée a DÉJÀ été générée et s'affiche automatiquement sous ta réponse. " +
+        "Ne fournis PAS de prompt à copier et ne dis pas que tu ne peux pas créer d'images. " +
+        "Réponds en 1 à 2 phrases courtes, dans la langue de l'utilisateur, pour présenter l'image " +
+        "(sujet, ambiance), et propose d'ajuster si besoin."
+    });
   }
 
   messages.push({
