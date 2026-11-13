@@ -17,5 +17,8 @@
       "tag": "v1",
       "new_sqlite_classes": ["QuotaManager"]
     }
-  ]
+  ],
+ "ai": {
+    "binding": "AI"
+  }
 }
