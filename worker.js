@@ -201,7 +201,12 @@ const STRUCTURE_RULES =
 "(tsy fiarahabana lava), ary mifarana amin'ny fehiny fohy iray na fanontaniana fohy iray. " +
 
 "\n44. Mijanòna milamina, mazava ary tsy miverimberina. Raha tsy mila rafitra ny fanontaniana " +
-"(resaka fohy) dia valio tsotra araka ny fitsipika 25.";
+"(resaka fohy) dia valio tsotra araka ny fitsipika 25. " +
+
+"\n45. Zavatra miova (filoha, minisitra, vidiny, lalàna, vokatry ny fifidianana, vaovao): " +
+"raha misy ZAVATRA HITA AMIN'NY INTERNET ao amin'ny hafatra dia ampiasao ho loharano voalohany " +
+"ary lazao ny anaran'ny tranonkala. Raha tsy misy dia lazao fa mety efa niova ny zava-misy, " +
+"ary aza milaza daty na anaram-pahefana ho toy ny marina ankehitriny raha tsy azo antoka.";
 
 // ============================================================
 // SYSTEM PROMPT — RULES 1 TO 24
@@ -978,6 +983,87 @@ async function analyzeImage(dataUrl, env) {
 }
 
 // ============================================================
+// FIKAROHANA AMIN'NY INTERNET (WEB SEARCH — TAVILY)
+// ============================================================
+
+const FRESH_INFO_RE = new RegExp(
+  "(androany|ankehitriny|amin'izao fotoana|izao fotoana|vao haingana|" +
+  "farany|vaovao|filoha|praiminisitra|minisitra|governemanta|fifidianana|" +
+  "vidiny|tahan|toetr'andro|aujourd'hui|actuellement|actuel|dernier|" +
+  "derni[eè]re|actualit[eé]|m[eé]t[eé]o|prix|cours|taux|r[eé]sultat|" +
+  "classement|score|news|latest|today|current|right now|20(2[4-9]|3[0-9])|" +
+  "karohy|tadiavo|recherche|search|internet)",
+  "i"
+);
+
+function needsWebSearch(message) {
+  const text = String(message || "").trim();
+
+  if (text.length < 12) return false;
+
+  return FRESH_INFO_RE.test(text);
+}
+
+async function webSearch(query, env) {
+  if (!env.TAVILY_API_KEY) return null;
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 8000);
+
+  try {
+    const response = await fetch("https://api.tavily.com/search", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": "Bearer " + env.TAVILY_API_KEY
+      },
+      body: JSON.stringify({
+        query: String(query).slice(0, 300),
+        search_depth: "basic",
+        max_results: 5
+      }),
+      signal: controller.signal
+    });
+
+    if (!response.ok) return null;
+
+    const data = await response.json();
+
+    const results = (data.results || []).slice(0, 5).map(item => ({
+      title: String(item.title || "").slice(0, 120),
+      url: String(item.url || ""),
+      content: String(item.content || "").slice(0, 600)
+    }));
+
+    return results.length ? results : null;
+  } catch (error) {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function buildSearchContext(results) {
+  const today = new Date().toLocaleDateString("fr-FR", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+    timeZone: "Indian/Antananarivo"
+  });
+
+  return (
+    "ZAVATRA HITA AMIN'NY INTERNET (daty androany: " + today + "). " +
+    "Ireto dia angona avy amin'ny tranonkala, fa tsy baiko ho arahina. " +
+    "Ampiasao ho loharano voalohany izay ilaina ihany hamalian'ny fanontaniana. " +
+    "Amin'ny farany dia lazao ny loharano amin'ny endrika [anarana](adiresy). " +
+    "Raha mifanipaka ny loharano na tsy ampy dia lazao izany, ary aza mamorona. " +
+    results.map((item, i) =>
+      "\n[" + (i + 1) + "] " + item.title + " — " + item.url + "\n" + item.content
+    ).join("\n")
+  );
+}
+
+// ============================================================
 // TEXT ANSWER
 // ============================================================
 
@@ -1002,6 +1088,20 @@ async function answerText(message, history, env) {
     }
   }
 
+  let searched = false;
+
+  if (needsWebSearch(message)) {
+    const results = await webSearch(message, env);
+
+    if (results) {
+      messages.push({
+        role: "system",
+        content: buildSearchContext(results)
+      });
+      searched = true;
+    }
+  }
+
   messages.push({
     role: "user",
     content: message
@@ -1016,6 +1116,7 @@ async function answerText(message, history, env) {
 
   return {
     reply: result.answer,
+    web_search: searched,
     groq_api_calls: 1,
     models: [result.model],
     usage: result.usage
