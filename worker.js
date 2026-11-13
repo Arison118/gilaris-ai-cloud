@@ -999,12 +999,16 @@ const FRESH_INFO_RE = new RegExp(
 
 const NEWS_RE = /(vaovao|news|actualit|androany|aujourd|today|dernier|ankehitriny|filoha|minisitra|praiminisitra|fifidianana|governemanta)/i;
 
+// Fanampiny: mamantatra fanontaniana mitady fahalalana
+// na dia tsy misy teny toy ny "boky", "vaovao" na "search" aza.
+const FACTUAL_QUESTION_RE = /(?:^|[\s,;])(?:iza(?:\s+(?:no|moa|amin'?ny))?|inona(?:\s+(?:no|moa|ny))?|oviana(?:\s+no)?|aiza(?:\s+(?:no|ny))?|firy(?:\s+(?:ny|no))?|who(?:\s+(?:is|was|are|were|wrote))?|what(?:\s+(?:is|was|are|were))?|when(?:\s+(?:did|was|is))?|where(?:\s+(?:is|was|are))?|which(?:\s+(?:is|was))?|how\s+many|qui(?:\s+(?:est|a|était))?|quoi(?:\s+(?:est|signifie))?|quand(?:\s+(?:est|a))?|où(?:\s+(?:est|se))?|combien(?:\s+(?:de|d'))?)/i;
+
 function needsWebSearch(message) {
   const text = String(message || "").trim();
 
   if (text.length < 12) return false;
 
-  return FRESH_INFO_RE.test(text);
+  return FRESH_INFO_RE.test(text) || FACTUAL_QUESTION_RE.test(text);
 }
 
 // Mamadika ny hafatra lava ho fanontaniana fohy ho an'ny fikarohana
