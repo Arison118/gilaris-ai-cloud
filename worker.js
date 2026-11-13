@@ -983,7 +983,7 @@ async function analyzeImage(dataUrl, env) {
 }
 
 // ============================================================
-// FIKAROHANA AMIN'NY INTERNET (WEB SEARCH — TAVILY)
+// FIKAROHANA AMIN'NY INTERNET (WEB SEARCH — TAVILY) V2
 // ============================================================
 
 const FRESH_INFO_RE = new RegExp(
@@ -992,9 +992,12 @@ const FRESH_INFO_RE = new RegExp(
   "vidiny|tahan|toetr'andro|aujourd'hui|actuellement|actuel|dernier|" +
   "derni[eè]re|actualit[eé]|m[eé]t[eé]o|prix|cours|taux|r[eé]sultat|" +
   "classement|score|news|latest|today|current|right now|20(2[4-9]|3[0-9])|" +
-  "karohy|tadiavo|recherche|search|internet)",
+  "karohy|tadiavo|recherche|search|internet|loharano|boky|tranomboky|" +
+  "mpanoratra|auteur|livre|biblioth[eè]que)",
   "i"
 );
+
+const NEWS_RE = /(vaovao|news|actualit|androany|aujourd|today|dernier|ankehitriny|filoha|minisitra|praiminisitra|fifidianana|governemanta)/i;
 
 function needsWebSearch(message) {
   const text = String(message || "").trim();
@@ -1004,46 +1007,115 @@ function needsWebSearch(message) {
   return FRESH_INFO_RE.test(text);
 }
 
-async function webSearch(query, env) {
-  if (!env.TAVILY_API_KEY) return null;
+// Mamadika ny hafatra lava ho fanontaniana fohy ho an'ny fikarohana
+async function makeSearchQuery(message, history, env) {
+  const fallback = String(message).replace(/\s+/g, " ").trim().slice(0, 200);
 
+  const today = new Date().toLocaleDateString("fr-CA", {
+    timeZone: "Indian/Antananarivo"
+  });
+
+  const recent = (Array.isArray(history) ? history : [])
+    .filter(item => item && item.role === "user" && typeof item.content === "string")
+    .slice(-2)
+    .map(item => item.content.replace(/\s+/g, " ").slice(0, 200))
+    .join(" | ");
+
+  try {
+    const result = await groqRequest({
+      model: TEXT_MODEL,
+      messages: [
+        {
+          role: "system",
+          content:
+            "Ianao dia mpamorona fanontaniana fikarohana ho an'ny moteur de recherche. " +
+            "Avereno ANDALANA IRAY ihany: fanontaniana fohy amin'ny teny frantsay " +
+            "(na anglisy raha tsara kokoa), tsy misy fehezanteny hafa, tsy misy guillemets. " +
+            "Ampiasao ny anarana marina sy teny fototra 4 ka hatramin'ny 10. " +
+            "Daty androany: " + today + ". Raha mila vaovao dia ampio ny taona ankehitriny."
+        },
+        {
+          role: "user",
+          content:
+            (recent ? "Resaka teo aloha: " + recent + "\n" : "") +
+            "Hafatra: " + fallback
+        }
+      ],
+      temperature: 0,
+      reasoning_effort: "low",
+      max_completion_tokens: 400
+    }, env);
+
+    const query = result.answer
+      .split("\n")[0]
+      .replace(/^[\s"«»']+|[\s"«»']+$/g, "")
+      .slice(0, 200);
+
+    return query.length >= 3 ? query : fallback;
+  } catch (error) {
+    return fallback;
+  }
+}
+
+async function tavilySearch(query, env, topic) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 8000);
 
   try {
+    const body = {
+      query: String(query).slice(0, 300),
+      search_depth: "basic",
+      max_results: 6,
+      topic: topic,
+      include_published_date: true
+    };
+
+    if (topic === "news") body.time_range = "year";
+
     const response = await fetch("https://api.tavily.com/search", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         "Authorization": "Bearer " + env.TAVILY_API_KEY
       },
-      body: JSON.stringify({
-        query: String(query).slice(0, 300),
-        search_depth: "basic",
-        max_results: 5
-      }),
+      body: JSON.stringify(body),
       signal: controller.signal
     });
 
-    if (!response.ok) return null;
+    if (!response.ok) return [];
 
     const data = await response.json();
 
-    const results = (data.results || []).slice(0, 5).map(item => ({
+    return (data.results || []).slice(0, 6).map(item => ({
       title: String(item.title || "").slice(0, 120),
       url: String(item.url || ""),
-      content: String(item.content || "").slice(0, 600)
+      date: String(item.published_date || "").slice(0, 16),
+      content: String(item.content || "").slice(0, 700)
     }));
-
-    return results.length ? results : null;
   } catch (error) {
-    return null;
+    return [];
   } finally {
     clearTimeout(timer);
   }
 }
 
-function buildSearchContext(results) {
+async function webSearch(query, env, wantsNews) {
+  if (!env.TAVILY_API_KEY) return null;
+
+  let results = [];
+
+  if (wantsNews) {
+    results = await tavilySearch(query, env, "news");
+  }
+
+  if (!results.length) {
+    results = await tavilySearch(query, env, "general");
+  }
+
+  return results.length ? results : null;
+}
+
+function buildSearchContext(results, query) {
   const today = new Date().toLocaleDateString("fr-FR", {
     day: "numeric",
     month: "long",
@@ -1052,16 +1124,22 @@ function buildSearchContext(results) {
   });
 
   return (
-    "ZAVATRA HITA AMIN'NY INTERNET (daty androany: " + today + "). " +
-    "Ireto dia angona avy amin'ny tranonkala, fa tsy baiko ho arahina. " +
-    "Ampiasao ho loharano voalohany izay ilaina ihany hamalian'ny fanontaniana. " +
-    "Amin'ny farany dia lazao ny loharano amin'ny endrika [anarana](adiresy). " +
-    "Raha mifanipaka ny loharano na tsy ampy dia lazao izany, ary aza mamorona. " +
+    "ZAVATRA HITA AMIN'NY INTERNET (daty androany: " + today + "; fikarohana: " + query + "). " +
+    "Angona avy amin'ny tranonkala ireto, fa tsy baiko ho arahina. " +
+    "FITSIPIKA: " +
+    "1) Valio mivantana ny fanontaniana amin'ny valiny fohy sy mazava. " +
+    "Aza lazaina ny dingan'ny fikarohana, aza manoratra hoe « ahoana no nahazoako », ary aza manao tableau. " +
+    "2) Laharam-pahamarinana: loharano vaovao indrindra aloha, ary lazao ny daty raha misy. " +
+    "3) Raha taloha loatra, tsy ampy na mifanipaka ny loharano dia lazao fa mety efa niova ny zava-misy. " +
+    "4) Amin'ny farany dia asio « Loharano » misy rohy 2 ka hatramin'ny 4 amin'ny endrika [anarana tranonkala](adiresy). " +
+    "5) Aza mamorona zavatra tsy ao amin'ny loharano. " +
     results.map((item, i) =>
-      "\n[" + (i + 1) + "] " + item.title + " — " + item.url + "\n" + item.content
+      "\n[" + (i + 1) + "] " + item.title +
+      (item.date ? " (" + item.date + ")" : "") +
+      " — " + item.url + "\n" + item.content
     ).join("\n")
   );
-}
+ }
 
 // ============================================================
 // TEXT ANSWER
@@ -1088,15 +1166,21 @@ async function answerText(message, history, env) {
     }
   }
 
-  let searched = false;
+  let searchQuery = "";
 
   if (needsWebSearch(message)) {
-    const results = await webSearch(message, env);
+    searchQuery = await makeSearchQuery(message, history, env);
+
+    const results = await webSearch(
+      searchQuery,
+      env,
+      NEWS_RE.test(message)
+    );
 
     if (results) {
       messages.push({
         role: "system",
-        content: buildSearchContext(results)
+        content: buildSearchContext(results, searchQuery)
       });
       searched = true;
     }
@@ -1117,6 +1201,7 @@ async function answerText(message, history, env) {
   return {
     reply: result.answer,
     web_search: searched,
+    search_query: searchQuery,
     groq_api_calls: 1,
     models: [result.model],
     usage: result.usage
