@@ -1109,7 +1109,7 @@ async function generateImage(prompt, env) {
     "@cf/black-forest-labs/flux-1-schnell",
     {
       prompt: String(prompt || "").slice(0, 1800),
-      steps: 4
+      steps: 6
     }
   );
 
@@ -1123,27 +1123,41 @@ async function generateImage(prompt, env) {
   return "data:image/jpeg;base64," + result.image;
 }
 
-// Mamadika ny hafatra ho prompt anglisy mazava ho an'ny Flux
+// Mamadika ny hafatra ho prompt anglisy feno ho an'ny sary (Flux)
 async function makeImagePrompt(message, env) {
+  const fallback = String(message || "").replace(/\s+/g, " ").trim().slice(0, 600);
+
   try {
-    const r = await groqRequest({
+    const result = await groqRequest({
       model: TEXT_MODEL,
       messages: [
         {
           role: "system",
           content:
-            "Convert the user's request (any language) into ONE detailed English " +
-            "text-to-image prompt (max 80 words): subject, style, lighting, colors, " +
-            "composition, high quality. Output ONLY the prompt, no quotes, no explanation."
+            "You write prompts for the FLUX text-to-image model. " +
+            "Convert the user's request (Malagasy, French or English) into ONE detailed English prompt, " +
+            "60 to 90 words: main subject, action, setting, art style, lighting, color palette, " +
+            "camera/composition, mood, and 'highly detailed, sharp focus, high quality'. " +
+            "Keep every element the user asked for (colors, objects, place, mood). " +
+            "Ignore command words like 'generate an image'. " +
+            "No text, letters or watermarks in the image. " +
+            "Output ONLY the prompt: no quotes, no explanation."
         },
-        { role: "user", content: String(message).slice(0, 1500) }
+        { role: "user", content: fallback }
       ],
-      temperature: 0.5,
-      max_completion_tokens: 200
+      temperature: 0.6,
+      reasoning_effort: "low",
+      max_completion_tokens: 500
     }, env);
-    return (r.answer || "").trim() || message;
-  } catch {
-    return message; // raha tsy mandeha dia ilay hafatra mivantana
+
+    const prompt = String(result.answer || "")
+      .split("\n")[0]
+      .replace(/^[\s"«»']+|[\s"«»']+$/g, "")
+      .slice(0, 1500);
+
+    return prompt.length >= 10 ? prompt : fallback;
+  } catch (error) {
+    return fallback;
   }
 }
 
@@ -1547,7 +1561,8 @@ async function answerText(message, history, env) {
 
   // Ny génération dia atao amin'ny Workers AI.
   if (isImageGenerationRequest(message)) {
-    generatedImage = await generateImage(message, env);
+    const imagePrompt = await makeImagePrompt(message, env);
+    generatedImage = await generateImage(imagePrompt, env);
 
     messages.push({
       role: "system",
