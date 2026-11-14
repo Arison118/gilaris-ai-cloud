@@ -1584,6 +1584,58 @@ async function getAuthorWiki(query) {
  }
 
 // ============================================================
+// TAHIRY MPANORATRA (fampahalalana voamarina avy amin'ny mpampiasa)
+// ============================================================
+
+const LOCAL_AUTHORS = [
+  {
+    name: "Jean-Joseph Rabearivelo",
+    aliases: ["rabearivelo", "j.j. rabearivelo", "jj rabearivelo", "jean-joseph rabearivelo"],
+    info:
+      "Poeta Malagasy (1901–1937), teraka tao Antananarivo. " +
+      "Asa fantatra: « Presque-songes » (1934), « Traduit de la nuit » (1935).",
+    source: "Wikipedia (fr/mg)"
+  },
+  {
+    name: "Iharilanto Patrick Andriamangatiana (I.P. Andriamangatiana)",
+    aliases: ["ipa", "i.p.a.", "i.p. andriamangatiana", "iharilanto", "andriamangatiana", "patrick andriamangatiana"],
+    info:
+      "Mpanoratra Malagasy (tononkalo, sombintantara, tantara maneho fable), mpikambana ao amin'ny " +
+      "Académie Nationale Malgache ary filohan'ny fikambanan'ny mpanoratra Malagasy araka ny loharano " +
+      "Words Without Borders (mety efa niova ny andraikitra). Nomen-kasina sy lanja tamin'ny hetsika " +
+      "« Tombokavatsan'ny Havàtsa » (Mey 2026, IKM Antsahavola) avy amin'ny Havàtsa-Upem. " +
+      "Asa hita ao amin'ny loharano: « Hamy » (sombintantara, 51 pejy, 2000). " +
+      "Ny boky « Vakivakim-piainana » dia voalaza avy amin'ny mpampiasa, fa tsy mbola voamarina tamin'ny loharano hita.",
+    source: "Words Without Borders; Newsmada; malagasyword.org"
+  }
+];
+
+function escapeAuthorRegExp(s) {
+  return String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function getLocalAuthorContext(message) {
+  const text = String(message || "");
+
+  const found = LOCAL_AUTHORS.filter(author =>
+    author.aliases.some(alias =>
+      new RegExp(
+        "(^|[^\\p{L}])" + escapeAuthorRegExp(alias) + "($|[^\\p{L}])",
+        "iu"
+      ).test(text)
+    )
+  );
+
+  if (!found.length) return null;
+
+  return (
+    "FAMPAHALALANA VOAMARINA AVY AMIN'NY MPAMPIASA (loharano voalohany momba ireto mpanoratra ireto; " +
+    "aza manampy zavatra tsy ao anatiny, ary lazao fa avy amin'ny fampahalalana nomena izany):\n" +
+    found.map(a => "- " + a.name + ": " + a.info + " (Loharano: " + a.source + ")").join("\n")
+  );
+}
+
+// ============================================================
 // LALANA MAIVANA ho an'ny fiarahabana sy fisaorana tsotra
 // ============================================================
 
@@ -1723,8 +1775,6 @@ async function answerText(message, history, env) {
       quickResult = await groqRequest({ model: FALLBACK_MODEL, ...quickPayload }, env);
     }
 
-      console.log("[GILARIS USAGE]", JSON.stringify(result.usage || {}));
-
     return {
       reply: quickResult.answer,
       web_search: false,
@@ -1820,6 +1870,12 @@ async function answerText(message, history, env) {
     });
   }
 
+  const localAuthors = getLocalAuthorContext(message);
+
+  if (localAuthors) {
+    messages.push({ role: "system", content: localAuthors });
+  }
+
   messages.push({
     role: "user",
     content: message
@@ -1837,6 +1893,11 @@ async function answerText(message, history, env) {
     reasoning_effort: profile.reasoning_effort,
     max_completion_tokens: profile.max_completion_tokens
   }, env);
+
+    console.log(
+    "[GILARIS USAGE]",
+    JSON.stringify({ profile: profile.name, model: result.model, usage: result.usage || {} })
+  );
 
   return {
     reply: result.answer,
