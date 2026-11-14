@@ -1583,6 +1583,37 @@ async function getAuthorWiki(query) {
   );
  }
 
+// ============================================================
+// LALANA MAIVANA ho an'ny fiarahabana sy fisaorana tsotra
+// ============================================================
+
+const SMALLTALK_RE =
+  /^\s*(?:salama|salam|manao\s+ahoana|akory|mbola\s+tsara|bonjour|bonsoir|salut|coucou|hello|hi|hey|good\s+(?:morning|evening|afternoon)|misaotra|merci|thanks|thank\s+you|ok|okay|eny|tsara|veloma|au\s+revoir|bye|ça\s+va|ca\s+va|how\s+are\s+you)\b/i;
+
+const TINY_PROMPT =
+"Ianao no GILARIS AI, mpanampy IA mafana sy sariaka. " +
+"Valio amin'ny fiteny nampiasain'ny mpampiasa (Malagasy, Frantsay na Anglisy). " +
+"Miarahaba amim-pahalalam-po, valio ny fanontaniana momba anao, ary asio emoji 1 ka hatramin'ny 3 mifanaraka. " +
+"Fohy (1 ka hatramin'ny 3 andalana) sy voajanahary. " +
+"Ampio firariantsoa fohy any amin'ny farany ary manontania raha mila fanampiana. " +
+"Aza mamorona zavatra.";
+
+function isSimpleChat(message) {
+  const m = String(message || "").trim();
+
+  if (!m || m.length > 45) return false;
+  if (!SMALLTALK_RE.test(m)) return false;
+
+  return !(
+    WEATHER_RE.test(m) ||
+    ROLE_QUESTION_RE.test(m) ||
+    AUTHOR_RE.test(m) ||
+    needsWebSearch(m) ||
+    IMAGE_SEARCH_RE.test(m) ||
+    isImageGenerationRequest(m)
+  );
+}
+
 const WEATHER_RE =
   /(toetr'?andro|toetrandro|m[eé]t[eé]o|weather|\borana\b|hafanana|temp[eé]rature|manjombona)/i;
 
@@ -1664,6 +1695,48 @@ async function getWeatherContext(message) {
 // ============================================================
 
 async function answerText(message, history, env) {
+  // Fiarahabana / fisaorana tsotra: token vitsy ihany (tsy mampiasa ny fitsipika be)
+  if (isSimpleChat(message)) {
+    const quick = [{ role: "system", content: TINY_PROMPT }];
+
+    for (const item of history.slice(-2)) {
+      if (
+        (item?.role === "user" || item?.role === "assistant") &&
+        typeof item?.content === "string"
+      ) {
+        quick.push({ role: item.role, content: item.content.slice(0, 500) });
+      }
+    }
+
+    quick.push({ role: "user", content: message });
+
+    const quickPayload = {
+      messages: quick,
+      temperature: 0.7,
+      reasoning_effort: "low",
+      max_completion_tokens: 700
+    };
+
+    let quickResult;
+
+    try {
+      quickResult = await groqRequest({ model: TEXT_MODEL, ...quickPayload }, env);
+    } catch (error) {
+      if (!error?.rateLimited) throw error;
+      quickResult = await groqRequest({ model: FALLBACK_MODEL, ...quickPayload }, env);
+    }
+
+    return {
+      reply: quickResult.answer,
+      web_search: false,
+      search_query: "",
+      images: [],
+      generatedImage: null,
+      groq_api_calls: 1,
+      models: [quickResult.model],
+      usage: quickResult.usage
+    };
+  }
   const messages = [
     { role: "system", content: SYSTEM_PROMPT },
     { role: "system", content: WARM_RULES },
