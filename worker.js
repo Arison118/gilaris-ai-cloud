@@ -1598,20 +1598,17 @@ const TINY_PROMPT =
 "Ampio firariantsoa fohy any amin'ny farany ary manontania raha mila fanampiana. " +
 "Aza mamorona zavatra.";
 
+const NOT_SIMPLE_RE =
+  /(toetr'?andro|toetrandro|m[eé]t[eé]o|weather|orana|praiminisitra|premier\s+ministre|prime\s+minister|filoha|pr[eé]sident|minisitra|ministre|mpanoratra|filozofa|philosoph|biograph|siantifika|scientifique|sary|image|photo|kaody|code|python|javascript|vaovao|ankehitriny|androany|\biza\b|\binona\b|\bqui\b|\bquoi\b|\bquel|\bwhat\b|\bwho\b|\bwhen\b)/i;
+
 function isSimpleChat(message) {
   const m = String(message || "").trim();
 
   if (!m || m.length > 45) return false;
   if (!SMALLTALK_RE.test(m)) return false;
+  if (NOT_SIMPLE_RE.test(m)) return false;
 
-  return !(
-    WEATHER_RE.test(m) ||
-    ROLE_QUESTION_RE.test(m) ||
-    AUTHOR_RE.test(m) ||
-    needsWebSearch(m) ||
-    IMAGE_SEARCH_RE.test(m) ||
-    isImageGenerationRequest(m)
-  );
+  return !(needsWebSearch(m) || isImageGenerationRequest(m));
 }
 
 const WEATHER_RE =
