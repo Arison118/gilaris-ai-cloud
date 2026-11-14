@@ -1723,6 +1723,8 @@ async function answerText(message, history, env) {
       quickResult = await groqRequest({ model: FALLBACK_MODEL, ...quickPayload }, env);
     }
 
+      console.log("[GILARIS USAGE]", JSON.stringify(result.usage || {}));
+
     return {
       reply: quickResult.answer,
       web_search: false,
