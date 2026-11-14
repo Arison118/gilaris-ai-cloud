@@ -1376,8 +1376,33 @@ const STYLE_RULES =
 "P. FANAMARINANA: ho an'ny kajy sy ny zavatra azo hamarinina, hamarino ao am-po aloha ny valiny, " +
 "ary lazao fohy ny fomba nahitana azy. " +
 
-"V. TENY: voajanahary sy mazava, mifanaraka amin'ny feon'ny mpampiasa; aza lava tsy ilaina, " +
+"R. TENY: voajanahary sy mazava, mifanaraka amin'ny feon'ny mpampiasa; aza lava tsy ilaina, " +
 "fa aza fohy loatra rehefa misy antsipiriany manan-danja.";
+
+const FACT_RULES =
+"FITSIPIKA MOMBA NY ANDRAIKITRA SY NY OLONA (laharam-pahamarinana ambony): " +
+
+"S. Rehefa manontany iza no manana andraikitra ankehitriny ny mpampiasa (praiminisitra, filoha, minisitra, " +
+"talen'ny orinasa, aryns.), dia omeo ho « ANKEHITRINY » ny olona voatonona ao amin'ny loharano VAOVAO INDRINDRA, " +
+"araka ny daty ao amin'ny lahatsoratra, fa tsy ny anarana hita matetika indrindra. " +
+"Ny lahatsoratra milaza hoe « nomena », « voatendry » na « nisolo » dia manondro ny olona vaovao. " +
+"Aza mifantina ny olona taloha raha misy loharano vaovao kokoa. " +
+
+"T. FORMA: valio amin'ity filaharana ity: " +
+"1) « Ankehitriny: » ny anarana feno amin'ny soratra matevina sy ny daty nanombohany. " +
+"2) « Taloha: » ny mpisolo teo aloha (anarana + vanim-potoana), ho an'ny hevitra ampy hanamafisana. " +
+"3) fahatsiarovana fohy: antony niovan'ny olona na zavatra vao haingana. " +
+
+"U. FAMPAHALALANA VOAMARINA (hatramin'ny 14 Novambra 2026, ampiasao raha tsy misy loharano vaovao kokoa): " +
+"Madagasikara: ny filoha dia ny Kolonely Michaël Randrianirina (Filohan'ny Refondation, nanomboka Oktobra 2025). " +
+"Praiminisitra ankehitriny: Mamitiana Rajaonarison (voatendry 15 Martsa 2026). " +
+"Taloha: Herintsalama Rajaonarivelo (20 Oktobra 2025 – 9 Martsa 2026); " +
+"Ruphin Fortunat Zafisambo Dimbisoa (6 Oktobra 2025, vanim-potoana fohy, teo ambany Andry Rajoelina); " +
+"Christian Ntsay (2018 – Oktobra 2025). " +
+"Raha manambaka ny loharano vaovao ny fampahalalana ity dia ny loharano vaovao no manan-kery. " +
+
+"V. Aza mifampifangaro ny anarana na ny daty. Raha tsy azo antoka dia lazao fa mety niova, " +
+"ary ampiharo ny toro-hevitra hanamarinana (madagascar-tribune.com, lexpress.mg, tranonkala ofisialy).";
 
 const WEATHER_RE =
   /(toetr'?andro|toetrandro|m[eé]t[eé]o|weather|\borana\b|hafanana|temp[eé]rature|manjombona)/i;
@@ -1464,7 +1489,8 @@ async function answerText(message, history, env) {
     { role: "system", content: SYSTEM_PROMPT },
     { role: "system", content: WARM_RULES },
     { role: "system", content: EXTRA_RULES },
-    { role: "system", content: STYLE_RULES }
+    { role: "system", content: STYLE_RULES },
+    { role: "system", content: FACT_RULES }
   ];
 
   for (const item of history.slice(-12)) {
