@@ -10,6 +10,104 @@ const API_URL = "https://api.groq.com/openai/v1/chat/completions";
 const TEXT_MODEL = "openai/gpt-oss-120b";
 const VISION_MODEL = "qwen/qwen3.8-27b";
 
+// ============================================================
+// FIZARANA ASA ANTSIKA MODELY (MODEL ROUTING + FALLBACK)
+// ============================================================
+
+const MODEL_LIGHT = "openai/gpt-oss-20b";
+const MODEL_HEAVY = "openai/gpt-oss-120b";
+const MODEL_SECOND = "qwen/qwen3.8-27b";
+
+// Filaharana: ny voalohany no ampiasaina; raha lany quota na misy olana dia ilay manaraka
+const LIGHT_CHAIN = [MODEL_LIGHT, MODEL_HEAVY, MODEL_SECOND];
+const HEAVY_CHAIN = [MODEL_HEAVY, MODEL_SECOND, MODEL_LIGHT];
+
+const HEAVY_RE = new RegExp(
+  "(bug|erreur|error|exception|debug|d[eé]boguer|traceback|stack ?trace|" +
+  "algorithm|architecture|refactor|optimis|code|kaody|fonction|script|" +
+  "sql|api|json|regex|html|css|javascript|python|react|node|cloudflare|worker|" +
+  "projet|tetikasa|fandrafetana|famakafakana|fanadihadiana|analyse|rapport|" +
+  "dissertation|d[eé]monstration|calcul|math|equation|preuve|" +
+  "fanitsiana|famahana|step by step|business plan|lahatsoratra lava|essay)",
+  "i"
+);
+
+function pickModelProfile(message, searched, forceLight) {
+  const text = String(message || "");
+
+  const heavy =
+    !forceLight &&
+    (
+    searched ||
+    text.includes("```") ||
+    text.length > 400 ||
+    (text.length > 25 && HEAVY_RE.test(text))
+    );
+
+  if (heavy) {
+    return {
+      name: "heavy",
+      chain: HEAVY_CHAIN,
+      temperature: 0.55,
+      reasoning_effort: "medium",
+      max_completion_tokens: 2500
+    };
+  }
+
+  return {
+    name: "light",
+    chain: LIGHT_CHAIN,
+    temperature: 0.75,
+    reasoning_effort: "low",
+    max_completion_tokens: 900
+  };
+}
+
+function isRetryableError(error) {
+  if (!(error instanceof APIError)) return false;
+
+  if (/fahazoan-dalana|GROQ_API_KEY/i.test(error.message)) return false;
+
+  return (
+    error.status === 502 ||
+    error.status === 503 ||
+    error.status === 504
+  );
+}
+
+async function groqWithFallback(chain, payload, env) {
+  let lastError = null;
+
+  for (const model of chain) {
+    const body = { ...payload, model };
+
+    // reasoning_effort dia ho an'ny modely gpt-oss ihany
+    if (!model.includes("gpt-oss")) {
+      delete body.reasoning_effort;
+    }
+
+    try {
+      const result = await groqRequest(body, env);
+
+      const cleaned = result.answer
+        .replace(/<think>[\s\S]*?<\/think>/gi, "")
+        .trim();
+
+      if (cleaned) result.answer = cleaned;
+
+      return result;
+    } catch (error) {
+      lastError = error;
+
+      if (!isRetryableError(error)) throw error;
+
+      console.warn("[GILARIS FALLBACK]", model, error.message);
+    }
+  }
+
+  throw lastError;
+}
+
 const MAX_BODY = 15 * 1024 * 1024;
 const MAX_IMAGE = 10 * 1024 * 1024;
 
@@ -943,8 +1041,7 @@ async function analyzeImage(dataUrl, env) {
     max_completion_tokens: 1100
   }, env);
 
-  const second = await groqRequest({
-    model: TEXT_MODEL,
+  const second = await groqWithFallback(LIGHT_CHAIN, {
     messages: [
       {
         role: "system",
@@ -959,6 +1056,7 @@ async function analyzeImage(dataUrl, env) {
       }
     ],
     temperature: 0,
+    reasoning_effort: "low",
     max_completion_tokens: 900
   }, env);
 
@@ -1128,8 +1226,7 @@ async function makeImagePrompt(message, env) {
   const fallback = String(message || "").replace(/\s+/g, " ").trim().slice(0, 600);
 
   try {
-    const result = await groqRequest({
-      model: TEXT_MODEL,
+    const result = await groqWithFallback(LIGHT_CHAIN, {
       messages: [
         {
           role: "system",
@@ -1181,8 +1278,7 @@ async function makeSearchQuery(message, history, env) {
     : "";
 
   try {
-    const result = await groqRequest({
-      model: TEXT_MODEL,
+  const result = await groqWithFallback(LIGHT_CHAIN, {
       messages: [
         {
           role: "system",
@@ -1657,15 +1753,22 @@ async function answerText(message, history, env) {
     content: message
   });
 
-  const result = await groqRequest({
-    model: TEXT_MODEL,
+  const profile = pickModelProfile(
+    message,
+    searched,
+    Boolean(generatedImage) || Boolean(weatherContext)
+  );
+
+  const result = await groqWithFallback(profile.chain, {
     messages,
-    temperature: 0.65,
-    max_completion_tokens: 2500
+    temperature: profile.temperature,
+    reasoning_effort: profile.reasoning_effort,
+    max_completion_tokens: profile.max_completion_tokens
   }, env);
 
   return {
     reply: result.answer,
+    model_profile: profile.name,
     web_search: searched,
     search_query: searchQuery,
     images,
