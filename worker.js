@@ -1418,6 +1418,75 @@ const FACT_RULES =
 "V. Aza mifampifangaro ny anarana na ny daty. Raha tsy azo antoka dia lazao fa mety niova, " +
 "ary ampiharo ny toro-hevitra hanamarinana (madagascar-tribune.com, lexpress.mg, tranonkala ofisialy).";
 
+const AUTHOR_RE =
+  /(mpanoratra|mpamoron-kira|po[eè]te|filozofa|philosoph|mpahay\s+siansa|siantifika|scientifique|chercheur|mpikaroka|biograph|tantaram-piainana|asa\s+soratra|[oœ]uvres?\b|livres?\s+de|auteur|[eé]crivain|writer|author|scientist|researcher|nobel|inona\s+ny\s+vitan)/i;
+
+const AUTHOR_RULES =
+"FITSIPIKA MOMBA NY MPANORATRA, FILOZOFA, SIANTIFIKA SY MPIKAROKA (laharam-pahamarinana ambony): " +
+"1. Ny fampahalalana avy amin'ny Wikipedia (mg/fr/en) sy ny fikarohana amin'ny internet dia loharano voalohany. " +
+"Hamarino aloha fa ny olona voalaza ao amin'ny loharano dia mitovy amin'ilay angatahan'ny mpampiasa " +
+"(anarana, vanim-potoana, firenena, sehatra) alohan'ny hamalian-teny. " +
+"2. Valiny: a) anarana feno sy andraikitra/sehatra; b) daty sy toerana nahaterahana (sy nahafatesana raha izany); " +
+"c) tantaram-piainana fohy; d) asa/boky/hevitra/fanaovana lehibe indrindra, miaraka amin'ny taona raha azo antoka; " +
+"e) fotoam-pivoaka na fiantraikany; f) « Loharano » misy rohy. " +
+"3. Aza mamorona boky, daty, loka na teny voatonona. Raha tsy azo antoka na mifanipaka ny loharano dia lazao mazava, " +
+"ary aza afangaro amin'ny mpanoratra hafa mitovy anarana. " +
+"4. TSY MISY FIAMBENANA: ny mpanoratra Malagasy dia omena ny halalin'ny valiny sy ny fikarohana mitovy amin'ny " +
+"mpanoratra frantsay, anglisy na hafa. Ho an'ny Malagasy, tadiavo amin'ny teny Malagasy sy Frantsay (ary Anglisy) ary " +
+"aza ampifangaroina ny firenena na ny toerana nahaterahana. " +
+"5. Rehefa tsy hita ny olona ao amin'ny loharano dia lazao fa tsy hita, ary asio hevitra hanampiana (rohy, " +
+"anarana hafa, dikan-tsoratra hafa); aza manao vinavina. " +
+"6. Fanomezana toerana (ho an'ny hevitra fotsiny, hamarino amin'ny fikarohana mialoha ny antsipiriany): " +
+"Jean-Joseph Rabearivelo (poeta), Iharilanto Patrick Randrimangatina (Mpanoratra Malagasy manana ny maha izy azy), Jacques Rabemananjara (poeta, mpanao politika), Flavien Ranaivo (poeta), " +
+"Michèle Rakotoson, Jean-Luc Raharimanana, Johary Ravaloson, Naivo (mpanoratra Malagasy ankehitriny).";
+
+// Mitady ny tantaram-piainana ao amin'ny Wikipedia (mg, fr, en)
+async function getAuthorWiki(query) {
+  const q = String(query || "").slice(0, 150);
+  if (!q) return null;
+  const headers = { "User-Agent": "GILARIS-AI/1.0", "Accept": "application/json" };
+
+  const parts = await Promise.all(["mg", "fr", "en"].map(async lang => {
+    try {
+      const sUrl =
+        "https://" + lang + ".wikipedia.org/w/api.php?action=query&list=search&srlimit=1&format=json&srsearch=" +
+        encodeURIComponent(q);
+      const s = await fetch(sUrl, { headers, signal: AbortSignal.timeout(5000) });
+      if (!s.ok) return null;
+
+      const title = (await s.json())?.query?.search?.[0]?.title;
+      if (!title) return null;
+
+      const pUrl =
+        "https://" + lang + ".wikipedia.org/api/rest_v1/page/summary/" +
+        encodeURIComponent(title.replace(/ /g, "_"));
+      const p = await fetch(pUrl, { headers, signal: AbortSignal.timeout(5000) });
+      if (!p.ok) return null;
+
+      const pd = await p.json();
+      if (!pd.extract) return null;
+
+      return (
+        "[" + lang.toUpperCase() + "] " + pd.title +
+        (pd.description ? " — " + pd.description : "") + "\n" +
+        pd.extract.slice(0, 800) + "\nLien: " +
+        (pd.content_urls?.desktop?.page || "")
+      );
+    } catch (error) {
+      return null;
+    }
+  }));
+
+  const ok = parts.filter(Boolean);
+  if (!ok.length) return null;
+
+  return (
+    "ANGONA AVY AMIN'NY WIKIPEDIA (mg/fr/en), loharano ho an'ny tantaram-piainana. " +
+    "Hamarino fa mifanaraka amin'ilay olona angatahina ny lahatsoratra tsirairay; " +
+    "raha tsy mifanaraka dia aza ampiasaina.\n\n" + ok.join("\n\n")
+  );
+ }
+
 const WEATHER_RE =
   /(toetr'?andro|toetrandro|m[eé]t[eé]o|weather|\borana\b|hafanana|temp[eé]rature|manjombona)/i;
 
@@ -1504,7 +1573,8 @@ async function answerText(message, history, env) {
     { role: "system", content: WARM_RULES },
     { role: "system", content: EXTRA_RULES },
     { role: "system", content: STYLE_RULES },
-    { role: "system", content: FACT_RULES }
+    { role: "system", content: FACT_RULES },
+    { role: "system", content: AUTHOR_RULES }
   ];
 
   for (const item of history.slice(-12)) {
@@ -1536,7 +1606,7 @@ async function answerText(message, history, env) {
     });
   }
 
-  if (!weatherContext && needsWebSearch(message)) {
+    if (!weatherContext && (needsWebSearch(message) || AUTHOR_RE.test(message))) {
     searchQuery = await makeSearchQuery(message, history, env);
 
     const results = await webSearch(
@@ -1553,6 +1623,14 @@ async function answerText(message, history, env) {
       searched = true;
     }
   }
+
+    if (!weatherContext && AUTHOR_RE.test(message)) {
+    const wikiContext = await getAuthorWiki(searchQuery || message);
+
+    if (wikiContext) {
+      messages.push({ role: "system", content: wikiContext });
+    }
+    }
 
   // Ny image search dia fanampiny; tsy manova ny valin'ny Tavily.
   if (IMAGE_SEARCH_RE.test(message) && !isImageGenerationRequest(message)) {
