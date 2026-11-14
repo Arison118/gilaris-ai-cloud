@@ -1021,10 +1021,10 @@ const IMAGE_SEARCH_RE =
   /(?:asehoy|asehoy\s+ahy|sary|sariny|sarin(?:y|a)|image|images|photo|photos|picture|pictures|illustration|montre[- ]moi|affiche[- ]moi|show\s+(?:me\s+)?(?:an?\s+)?(?:image|photo|picture)|find\s+(?:an?\s+)?(?:image|photo|picture))/i;
 
 const IMAGE_GENERATION_RE =
-  /(?:mamor[oò]na\s+(?:sary|image)|mamorony\s+(?:sary|image)|sary\s+vaovao|g[eé]n[eè]re(?:r)?\s+(?:une\s+)?image|cr[eé]e(?:r)?\s+(?:une\s+)?image|create\s+(?:an?\s+)?image|generate\s+(?:an?\s+)?image|draw\s+(?:me\s+)?(?:an?\s+)?|dessine(?:-moi)?\s+)/i;
+  /(?:\b(?:mamor[oò]na|mamorony|manaova|manamboara|g[eé]n[eè]re[rz]?|cr[eé]e[rz]?|dessine[rz]?(?:-moi)?|create|generate|draw)\b[^.\n?!]{0,60}?\b(?:sary|image|images|photo|illustration|logo|dessin|picture)\b|\bsary\s+vaovao\b|\b(?:dessine|draw)(?:-moi|\s+me)?\b)/i;
 
 function isImageGenerationRequest(message) {
-  return IMAGE_GENERATION_RE.test(String(message || ""));
+  return IMAGE_GENERATION_RE.test(String(message || "").normalize("NFC"));
 }
 
 async function commonsImageSearch(query) {
@@ -1547,16 +1547,15 @@ async function answerText(message, history, env) {
 
   // Ny génération dia atao amin'ny Workers AI.
   if (isImageGenerationRequest(message)) {
-    const imagePrompt = await makeImagePrompt(message, env);
-    generatedImage = await generateImage(imagePrompt, env);
+    generatedImage = await generateImage(message, env);
 
     messages.push({
       role: "system",
       content:
         "L'image demandée a DÉJÀ été générée et s'affiche automatiquement sous ta réponse. " +
-        "Ne fournis PAS de prompt à copier et ne dis pas que tu ne peux pas créer d'images. " +
+        "Ne dis JAMAIS que tu ne peux pas afficher ou créer d'images, et ne donne PAS de prompt à copier. " +
         "Réponds en 1 à 2 phrases courtes, dans la langue de l'utilisateur, pour présenter l'image " +
-        "(sujet, ambiance), et propose d'ajuster si besoin."
+        "(sujet, ambiance) et propose d'ajuster si besoin."
     });
   }
 
