@@ -1294,14 +1294,117 @@ function buildSearchContext(results, query) {
  }
 
 // ============================================================
+// FITSIPIKA MAFANA SY TOETR'ANDRO MARINA (ADD-ON)
+// ============================================================
+
+const WARM_RULES =
+"FITSIPIKA LAHARAM-PAHAMARINANA (mihoatra ny fitsipika hafa rehetra raha misy fifandirana, " +
+"indrindra ny fitsipika 14, 20, 22 sy 23): " +
+
+"A. Raha miarahaba ny mpampiasa (Bonjour, Salama, Manao ahoana, Hello, Bonsoir...) " +
+"na manontany ny toetranao (inona vaovao, manao ahoana ianao) dia valio aloha amin'ny " +
+"fiarahabana mafana ao amin'ny andalana voalohany, miaraka amin'ny emoji 1 ka hatramin'ny 3 mifanaraka, " +
+"ary valio ny fanontaniany momba anao (ohatra « tsara dia tsara aho, misaotra »). " +
+
+"B. Raha misy fiarahabana SY fanontaniana ao amin'ny hafatra iray dia valio ny roa tonta: " +
+"fiarahabana fohy aloha, avy eo ny valiny feno amin'ny fanontaniana. " +
+"Aza mamela ny fiarahabana na ny faritra iray amin'ny hafatra. " +
+
+"C. Ho toy ny namana mahay sy mafana ianao: sariaka, mifanaraka amin'ny feon'ny mpampiasa, " +
+"tsy mangatsiaka na robotika. Aza manomboka amin'ny « Miala tsiny » raha mbola azonao atao ny manampy. " +
+
+"D. Raha tsy hitanao ny angona marina farany dia aza mijanona amin'ny « tsy hita ». " +
+"Omeo ny fampahalalana ankapobeny mahasoa, lazao mazava fa ankapobeny ihany izany, " +
+"ary asio toro-lalana tsara (ohatra meteo.mg ho an'ny toetr'andro). " +
+
+"E. Valio amin'ny fiteny nampiasain'ny mpampiasa (Malagasy, Frantsay na mifangaro). " +
+"F. Tazomy ny fahamarinana: aza mamorona zavatra.";
+
+const WEATHER_RE =
+  /(toetr'?andro|toetrandro|m[eé]t[eé]o|weather|\borana\b|hafanana|temp[eé]rature|manjombona)/i;
+
+const MG_CITIES = [
+  { name: "Antananarivo", lat: -18.9137, lon: 47.5361, keys: ["antananarivo", "tana", "tananarive"] },
+  { name: "Toamasina", lat: -18.1492, lon: 49.4023, keys: ["toamasina", "tamatave"] },
+  { name: "Mahajanga", lat: -15.7167, lon: 46.3167, keys: ["mahajanga", "majunga"] },
+  { name: "Fianarantsoa", lat: -21.4536, lon: 47.0857, keys: ["fianarantsoa", "fianar"] },
+  { name: "Toliara", lat: -23.35, lon: 43.6667, keys: ["toliara", "tuléar", "tulear"] },
+  { name: "Antsiranana", lat: -12.2787, lon: 49.2917, keys: ["antsiranana", "diego"] },
+  { name: "Antsirabe", lat: -19.8659, lon: 47.0333, keys: ["antsirabe"] },
+  { name: "Nosy Be", lat: -13.3167, lon: 48.2667, keys: ["nosy be", "nosybe"] },
+  { name: "Morondava", lat: -20.2833, lon: 44.2833, keys: ["morondava"] },
+  { name: "Taolagnaro", lat: -25.0319, lon: 46.9987, keys: ["taolagnaro", "fort-dauphin", "fort dauphin"] },
+  { name: "Manakara", lat: -22.15, lon: 48.0167, keys: ["manakara"] },
+  { name: "Sambava", lat: -14.2667, lon: 50.1667, keys: ["sambava"] },
+  { name: "Ambositra", lat: -20.5333, lon: 47.25, keys: ["ambositra"] },
+  { name: "Moramanga", lat: -18.95, lon: 48.2333, keys: ["moramanga"] }
+];
+
+function weatherLabel(code) {
+  if (code === 0) return "andro madio";
+  if (code <= 3) return "misy rahona kely na be";
+  if (code === 45 || code === 48) return "zavona";
+  if (code >= 51 && code <= 57) return "ranonandry";
+  if (code >= 61 && code <= 67) return "orana";
+  if (code >= 80 && code <= 82) return "oram-pandalana";
+  if (code >= 95) return "tara-pahazavana";
+  return "miovaova";
+}
+
+async function getWeatherContext(message) {
+  if (!WEATHER_RE.test(String(message || ""))) return null;
+
+  const text = String(message).toLowerCase();
+  const city = MG_CITIES.find(c => c.keys.some(k => text.includes(k))) || MG_CITIES[0];
+
+  try {
+    const url =
+      "https://api.open-meteo.com/v1/forecast?latitude=" + city.lat +
+      "&longitude=" + city.lon +
+      "&current=temperature_2m,apparent_temperature,relative_humidity_2m,precipitation,weather_code,wind_speed_10m" +
+      "&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max" +
+      "&timezone=Indian%2FAntananarivo&forecast_days=3";
+
+    const res = await fetch(url, { signal: AbortSignal.timeout(6000) });
+    if (!res.ok) return null;
+
+    const d = await res.json();
+    const c = d.current;
+    const day = d.daily;
+    if (!c || !day) return null;
+
+    const days = day.time.map((t, i) =>
+      t + ": " + weatherLabel(day.weather_code[i]) +
+      ", " + Math.round(day.temperature_2m_min[i]) + "–" +
+      Math.round(day.temperature_2m_max[i]) + "°C, " +
+      "mety hanorana " + day.precipitation_probability_max[i] + "%"
+    ).join("\n");
+
+    return (
+      "TOETR'ANDRO MARINA ao " + city.name + " (loharano: Open-Meteo, angona mivantana). " +
+      "Ampiasao ho loharano voalohany ary valio amin'ny fomba mafana sy voajanahary, " +
+      "miaraka amin'ny emoji mifanaraka. Lazao ny hafanana, ny mety hisian'ny orana " +
+      "ary toro-hevitra fohy (ohatra mitondra elo na akanjo). " +
+      "Aza milaza fa tsy hita ny toetr'andro. \n" +
+      "Ankehitriny: " + weatherLabel(c.weather_code) + ", " +
+      Math.round(c.temperature_2m) + "°C (hita toa " + Math.round(c.apparent_temperature) + "°C), " +
+      "hamandoana " + c.relative_humidity_2m + "%, rivotra " + Math.round(c.wind_speed_10m) + " km/h.\n" +
+      "Tombana 3 andro:\n" + days
+    );
+  } catch (error) {
+    return null;
+  }
+}
+
+// ============================================================
 // TEXT ANSWER
 // ============================================================
 
 async function answerText(message, history, env) {
-  const messages = [{
-    role: "system",
-    content: SYSTEM_PROMPT
-  }];
+  const messages = [
+    { role: "system", content: SYSTEM_PROMPT },
+    { role: "system", content: WARM_RULES }
+  ];
 
   for (const item of history.slice(-12)) {
     const role = item?.role;
@@ -1323,7 +1426,16 @@ async function answerText(message, history, env) {
   let images = [];
   let generatedImage = null;
 
-  if (needsWebSearch(message)) {
+  const weatherContext = await getWeatherContext(message);
+
+  if (weatherContext) {
+    messages.push({
+      role: "system",
+      content: weatherContext
+    });
+  }
+
+  if (!weatherContext && needsWebSearch(message)) {
     searchQuery = await makeSearchQuery(message, history, env);
 
     const results = await webSearch(
