@@ -1109,6 +1109,39 @@ function needsWebSearch(message) {
   return FRESH_INFO_RE.test(text) || FACTUAL_QUESTION_RE.test(text);
 }
 
+// ============================================================
+// FILTRE NY HAFATRA: resaka tsotra = tsy misy fitaovana (tool)
+// ============================================================
+
+const SMALLTALK_QUESTION_RE =
+  /(inona\s+no\s+vaovao|manao\s+ahoana|ahoana\s+(?:ny\s+)?(?:fiainana|ianao|izany)|ahoana\s+androany|how\s+are\s+you|comment\s+(?:vas-tu|allez-vous)|[cç]a\s+va)/i;
+
+function isSmallTalk(message) {
+  const text = String(message || "").trim();
+
+  if (!text) return true;
+
+  const hasToolCue =
+    WEATHER_RE.test(text) ||
+    SEARCH_EXPLICIT_RE.test(text) ||
+    isImageGenerationRequest(text);
+
+  // « Salama, inona no vaovao? » = fiarahabana, fa tsy fikarohana
+  if (text.length <= 80 && SMALLTALK_QUESTION_RE.test(text) && !hasToolCue) {
+    return true;
+  }
+
+  const hasCue =
+    hasToolCue ||
+    FRESH_INFO_RE.test(text) ||
+    FACTUAL_QUESTION_RE.test(text) ||
+    HEAVY_RE.test(text) ||
+    AUTHOR_RE.test(text) ||
+    IMAGE_SEARCH_RE.test(text);
+
+  // Hafatra fohy tsy misy tanjona mazava
+  return text.length <= 40 && !hasCue;
+}
 
 // ============================================================
 // GILARIS AI — IMAGE SEARCH & IMAGE GENERATION (ADD-ON)
@@ -1786,6 +1819,7 @@ async function answerText(message, history, env) {
       usage: quickResult.usage
     };
   }
+  const chatOnly = isSmallTalk(message);
   const messages = [
     { role: "system", content: SYSTEM_PROMPT },
     { role: "system", content: WARM_RULES },
@@ -1795,7 +1829,7 @@ async function answerText(message, history, env) {
     { role: "system", content: AUTHOR_RULES }
   ];
 
-  for (const item of history.slice(-12)) {
+    for (const item of history.slice(chatOnly ? -4 : -8)) {
     const role = item?.role;
     const content = item?.content;
 
@@ -1815,7 +1849,7 @@ async function answerText(message, history, env) {
   let images = [];
   let generatedImage = null;
 
-  const weatherContext = await getWeatherContext(message);
+  const weatherContext = chatOnly ? null : await getWeatherContext(message);
 
   if (weatherContext) {
     messages.push({
@@ -1824,7 +1858,7 @@ async function answerText(message, history, env) {
     });
   }
 
-    if (!weatherContext && (needsWebSearch(message) || AUTHOR_RE.test(message))) {
+    if (!chatOnly && !weatherContext && (needsWebSearch(message) || AUTHOR_RE.test(message))) {
     searchQuery = await makeSearchQuery(message, history, env);
 
     const results = await webSearch(
@@ -1851,7 +1885,7 @@ async function answerText(message, history, env) {
     }
 
   // Ny image search dia fanampiny; tsy manova ny valin'ny Tavily.
-  if (IMAGE_SEARCH_RE.test(message) && !isImageGenerationRequest(message)) {
+    if (!chatOnly && IMAGE_SEARCH_RE.test(message) && !isImageGenerationRequest(message)) {
     images = await commonsImageSearch(searchQuery || message);
   }
 
