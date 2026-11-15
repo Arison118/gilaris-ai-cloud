@@ -1834,7 +1834,7 @@ async function answerText(message, history, env) {
     message + " " +
     history.slice(-2).map(h => String(h?.content || "").slice(0, 300)).join(" ");
 
-  if (ROLE_TOPIC_RE.test(topicText)) {
+  if (/(praiminisitra|premier\s+ministre|prime\s+minister|filoha|pr[eé]sident|minisitra|ministre)/i.test(topicText)) {
     messages.push({ role: "system", content: FACT_RULES });
   }
 
