@@ -1360,7 +1360,7 @@ async function tavilySearch(query, env, topic) {
     const body = {
       query: String(query).slice(0, 300),
       search_depth: "basic",
-      max_results: 6,
+      max_results: 4,
       topic: topic,
       include_published_date: true
     };
@@ -1381,11 +1381,11 @@ async function tavilySearch(query, env, topic) {
 
     const data = await response.json();
 
-    return (data.results || []).slice(0, 6).map(item => ({
+    return (data.results || []).slice(0, 4).map(item => ({
       title: String(item.title || "").slice(0, 120),
       url: String(item.url || ""),
       date: String(item.published_date || "").slice(0, 16),
-      content: String(item.content || "").slice(0, 700)
+      content: String(item.content || "").slice(0, 500)
     }));
   } catch (error) {
     return [];
@@ -1601,7 +1601,7 @@ async function getAuthorWiki(query) {
       return (
         "[" + lang.toUpperCase() + "] " + pd.title +
         (pd.description ? " — " + pd.description : "") + "\n" +
-        pd.extract.slice(0, 800) + "\nLien: " +
+        pd.extract.slice(0, 500) + "\nLien: " +
         (pd.content_urls?.desktop?.page || "")
       );
     } catch (error) {
@@ -1827,10 +1827,20 @@ async function answerText(message, history, env) {
     { role: "system", content: SYSTEM_PROMPT },
     { role: "system", content: WARM_RULES },
     { role: "system", content: EXTRA_RULES },
-    { role: "system", content: STYLE_RULES },
-    { role: "system", content: FACT_RULES },
-    { role: "system", content: AUTHOR_RULES }
+    { role: "system", content: STYLE_RULES }
   ];
+  // Fitsipika ampiana rehefa ilaina ihany (mitondra token vitsy kokoa)
+  const topicText =
+    message + " " +
+    history.slice(-2).map(h => String(h?.content || "").slice(0, 300)).join(" ");
+
+  if (ROLE_TOPIC_RE.test(topicText)) {
+    messages.push({ role: "system", content: FACT_RULES });
+  }
+
+  if (AUTHOR_RE.test(topicText) || getLocalAuthorContext(topicText)) {
+    messages.push({ role: "system", content: AUTHOR_RULES });
+  }
 
     for (const item of history.slice(chatOnly ? -4 : -8)) {
     const role = item?.role;
@@ -1842,7 +1852,7 @@ async function answerText(message, history, env) {
     ) {
       messages.push({
         role,
-        content: content.slice(0, 12000)
+        content: content.slice(0, 4000)
       });
     }
   }
