@@ -1116,6 +1116,9 @@ function needsWebSearch(message) {
 const SMALLTALK_QUESTION_RE =
   /(inona\s+no\s+vaovao|manao\s+ahoana|ahoana\s+(?:ny\s+)?(?:fiainana|ianao|izany)|ahoana\s+androany|how\s+are\s+you|comment\s+(?:vas-tu|allez-vous)|[cç]a\s+va)/i;
 
+const SEARCH_EXPLICIT_RE =
+  /(tadiavo|karohy|mikaroha|hikaroka|recherche|cherche|search|google|jereo\s+ao\s+amin'?ny\s+(?:internet|web)|look\s+up)/i;
+
 function isSmallTalk(message) {
   const text = String(message || "").trim();
 
@@ -1135,7 +1138,7 @@ function isSmallTalk(message) {
     hasToolCue ||
     FRESH_INFO_RE.test(text) ||
     FACTUAL_QUESTION_RE.test(text) ||
-    HEAVY_RE.test(text) ||
+    (typeof HEAVY_RE !== "undefined" && HEAVY_RE.test(text)) ||
     AUTHOR_RE.test(text) ||
     IMAGE_SEARCH_RE.test(text);
 
