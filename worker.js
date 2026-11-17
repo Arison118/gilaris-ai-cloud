@@ -1678,6 +1678,16 @@ function getLocalAuthorContext(message) {
 const SMALLTALK_RE =
   /^\s*(?:salama|salam|manao\s+ahoana|akory|mbola\s+tsara|bonjour|bonsoir|salut|coucou|hello|hi|hey|good\s+(?:morning|evening|afternoon)|misaotra|merci|thanks|thank\s+you|ok|okay|eny|tsara|veloma|au\s+revoir|bye|ça\s+va|ca\s+va|how\s+are\s+you)\b/i;
 
+const PLAIN_PROMPT =
+"Tu es GILARIS AI, un assistant précis. Exécute exactement la consigne de l'utilisateur. " +
+"Réponds dans la langue demandée ; en malagasy, écris un malagasy correct, naturel et clair, sans mots inventés. " +
+"N'invente jamais de faits, de chiffres ni d'expériences absents du texte fourni. " +
+"Format : Markdown simple (titres ###, puces « - », **gras** avec parcimonie) ; " +
+"formules mathématiques en LaTeX (\\( ... \\) dans une phrase, \\[ ... \\] sur une ligne seule) ; " +
+"code dans des blocs ```langage. " +
+"Pas de salutation, pas d'emoji, pas de formule de politesse ni de souhait final, " +
+"pas de question finale, sauf si la consigne le demande.";
+
 const TINY_PROMPT =
 "Ianao no GILARIS AI, mpanampy IA mafana sy sariaka. " +
 "Valio amin'ny fiteny nampiasain'ny mpampiasa (Malagasy, Frantsay na Anglisy). " +
@@ -1780,6 +1790,36 @@ async function getWeatherContext(message) {
 // ============================================================
 
 async function answerText(message, history, env, plain = false) {
+
+  // Mode "plain" : outils du site (CV, rédaction, traduction, résumé, tuteur, planning).
+  // Prompt court, sans personnalité ni recherche web => beaucoup moins de tokens.
+  if (plain) {
+    const needsMath = /(fraction|[eé]quation|maths?|physique|kajy|calcul|professeur patient)/i.test(message);
+    const profile = pickModelProfile(message, false, false);
+
+    const result = await groqWithFallback(profile.chain, {
+      messages: [
+        { role: "system", content: PLAIN_PROMPT },
+        { role: "user", content: message }
+      ],
+      temperature: 0.4,
+      reasoning_effort: needsMath ? "medium" : "low",
+      max_completion_tokens: profile.max_completion_tokens
+    }, env);
+
+    return {
+      reply: result.answer,
+      model_profile: "plain",
+      web_search: false,
+      search_query: "",
+      images: [],
+      generatedImage: null,
+      groq_api_calls: 1,
+      models: [result.model],
+      usage: result.usage
+    };
+  }
+  
   // Fiarahabana / fisaorana tsotra: token vitsy ihany (tsy mampiasa ny fitsipika be)
   if (isSimpleChat(message)) {
     const quick = [{ role: "system", content: TINY_PROMPT }];
