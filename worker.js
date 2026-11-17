@@ -1779,7 +1779,7 @@ async function getWeatherContext(message) {
 // TEXT ANSWER
 // ============================================================
 
-async function answerText(message, history, env) {
+async function answerText(message, history, env, plain = false) {
   // Fiarahabana / fisaorana tsotra: token vitsy ihany (tsy mampiasa ny fitsipika be)
   if (isSimpleChat(message)) {
     const quick = [{ role: "system", content: TINY_PROMPT }];
@@ -1822,7 +1822,7 @@ async function answerText(message, history, env) {
       usage: quickResult.usage
     };
   }
-  const chatOnly = isSmallTalk(message);
+  const chatOnly = plain || isSmallTalk(message);
   const messages = [
     { role: "system", content: SYSTEM_PROMPT },
     { role: "system", content: WARM_RULES },
@@ -1903,7 +1903,7 @@ async function answerText(message, history, env) {
   }
 
   // Ny génération dia atao amin'ny Workers AI.
-  if (isImageGenerationRequest(message)) {
+  if (!plain && isImageGenerationRequest(message)) {
     const imagePrompt = await makeImagePrompt(message, env);
     generatedImage = await generateImage(imagePrompt, env);
 
@@ -2175,7 +2175,7 @@ export default {
 
       const result = image
         ? await analyzeImage(image, env)
-        : await answerText(message, history, env);
+        : await answerText(message, history, env, payload.plain === true);
 
       // ------------------------------------------------------
       // PREPARE TOKEN USAGE
