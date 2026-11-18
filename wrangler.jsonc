@@ -1,9 +1,9 @@
-
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "gilaris-ai-cloud-v1",
   "main": "worker.js",
   "compatibility_date": "2026-10-31",
+  "ai": { "binding": "AI" },
   "durable_objects": {
     "bindings": [
       {
@@ -17,8 +17,5 @@
       "tag": "v1",
       "new_sqlite_classes": ["QuotaManager"]
     }
-  ],
- "ai": {
-    "binding": "AI"
-  }
+  ]
 }
