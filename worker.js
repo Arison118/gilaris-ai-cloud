@@ -108,6 +108,9 @@ async function groqWithFallback(chain, payload, env) {
   throw lastError;
 }
 
+const aiWithFallback = groqWithFallback;
+const VISION_CHAIN = [VISION_MODEL];
+
 const MAX_BODY = 15 * 1024 * 1024;
 const MAX_IMAGE = 10 * 1024 * 1024;
 
