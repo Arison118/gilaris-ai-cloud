@@ -2,25 +2,550 @@
 import { DurableObject } from "cloudflare:workers";
 
 // ============================================================
-// GILARIS AI CLOUD V1 — CONFIGURATION
+// GILARIS AI — MULTI-AI ORCHESTRATION
+// Failover automatique + Load balancing + Cooldown
+// Providers: Groq, Gemini, Mistral, OpenRouter, DeepSeek, OpenAI, Anthropic
 // ============================================================
 
-const API_URL = "https://api.groq.com/openai/v1/chat/completions";
-
-const TEXT_MODEL = "openai/gpt-oss-120b";
 const VISION_MODEL = "qwen/qwen3.8-27b";
-
-// ============================================================
-// FIZARANA ASA ANTSIKA MODELY (MODEL ROUTING + FALLBACK)
-// ============================================================
 
 const MODEL_LIGHT = "openai/gpt-oss-20b";
 const MODEL_HEAVY = "openai/gpt-oss-120b";
 const MODEL_SECOND = "qwen/qwen3.8-27b";
 
-// Filaharana: ny voalohany no ampiasaina; raha lany quota na misy olana dia ilay manaraka
-const LIGHT_CHAIN = [MODEL_LIGHT, MODEL_HEAVY, MODEL_SECOND];
-const HEAVY_CHAIN = [MODEL_HEAVY, MODEL_SECOND, MODEL_LIGHT];
+// Anaran'ny chain (tsy miova ny fampiasana azy ao amin'ny worker)
+const LIGHT_CHAIN = "light";
+const HEAVY_CHAIN = "heavy";
+const VISION_CHAIN = "vision";
+
+const ATTEMPT_TIMEOUT_MS = 45000; // fotoana avela isaky ny AI iray
+const MAX_ATTEMPTS = 6;           // AI hafa farafahabetsany andramana isaky ny fangatahana
+
+const PROVIDERS = {
+  groq: {
+    kind: "openai",
+    url: "https://api.groq.com/openai/v1/chat/completions",
+    keyEnv: "GROQ_API_KEY",
+    tokenParam: "max_completion_tokens"
+  },
+  gemini: {
+    kind: "openai",
+    url: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
+    keyEnv: "GEMINI_API_KEY",
+    tokenParam: "max_tokens",
+    noTemperature: true
+  },
+  mistral: {
+    kind: "openai",
+    url: "https://api.mistral.ai/v1/chat/completions",
+    keyEnv: "MISTRAL_API_KEY",
+    tokenParam: "max_tokens"
+  },
+  deepseek: {
+    kind: "openai",
+    url: "https://api.deepseek.com/chat/completions",
+    keyEnv: "DEEPSEEK_API_KEY",
+    tokenParam: "max_tokens"
+  },
+  openai: {
+    kind: "openai",
+    url: "https://api.openai.com/v1/chat/completions",
+    keyEnv: "OPENAI_API_KEY",
+    tokenParam: "max_completion_tokens",
+    noTemperature: true
+  },
+  openrouter: {
+    kind: "openai",
+    url: "https://openrouter.ai/api/v1/chat/completions",
+    keyEnv: "OPENROUTER_API_KEY",
+    tokenParam: "max_tokens"
+  },
+  anthropic: {
+    kind: "anthropic",
+    url: "https://api.anthropic.com/v1/messages",
+    keyEnv: "ANTHROPIC_API_KEY"
+  }
+};
+
+function envText(env, name, fallback) {
+  const value = env && env[name];
+  return typeof value === "string" && value.trim() ? value.trim() : fallback;
+}
+
+// ------------------------------------------------------------
+// FILAHARANA: Groq aloha foana. Ireo hafa dia second rehefa
+// reraka ny Groq. Ao anatin'ny vondrona iray, mifandimby ny AI
+// (load balancing). Ny AI tsy misy API key dia lavina ho azy.
+// Ny modely dia azo ovaina avy ao amin'ny Cloudflare Variables.
+// ------------------------------------------------------------
+
+function buildGroups(name, env) {
+  const t = (provider, model) => ({ provider, model });
+  const m = (key, fallback) => envText(env, key, fallback);
+
+  const openrouterLight = m("OPENROUTER_MODEL_LIGHT", "openrouter/free");
+  const openrouterHeavy = m("OPENROUTER_MODEL_HEAVY", "openrouter/free");
+  const geminiLight = m("GEMINI_MODEL_LIGHT", "gemini-3.8-flash");
+  const geminiHeavy = m("GEMINI_MODEL_HEAVY", "gemini-3.8-flash");
+  const mistralLight = m("MISTRAL_MODEL_LIGHT", "mistral-small-latest");
+  const mistralHeavy = m("MISTRAL_MODEL_HEAVY", "mistral-large-latest");
+  const deepseekLight = m("DEEPSEEK_MODEL_LIGHT", "deepseek-v4-flash");
+  const deepseekHeavy = m("DEEPSEEK_MODEL_HEAVY", "deepseek-v4-pro");
+  const openaiLight = m("OPENAI_MODEL_LIGHT", "gpt-5.4-mini");
+  const openaiHeavy = m("OPENAI_MODEL_HEAVY", "gpt-5.4-mini");
+  const claudeLight = m("ANTHROPIC_MODEL_LIGHT", "claude-haiku-5-5");
+  const claudeHeavy = m("ANTHROPIC_MODEL_HEAVY", "claude-sonnet-5-5");
+
+  // Sary: Groq aloha, avy eo ireo hafa (OpenRouter tsy ampiasaina ho an'ny sary)
+  if (name === "vision") {
+    return [
+      [t("groq", VISION_MODEL)],
+      [t("gemini", geminiHeavy), t("mistral", mistralLight)],
+      [t("openai", openaiLight), t("anthropic", claudeLight)]
+    ];
+  }
+
+  // Raharaha mavesatra
+  if (name === "heavy") {
+    return [
+      [t("groq", MODEL_HEAVY)],
+      [t("groq", MODEL_SECOND)],
+      [t("groq", MODEL_LIGHT)],
+      [t("gemini", geminiHeavy), t("mistral", mistralHeavy)],
+      [t("openrouter", openrouterHeavy)],
+      [t("deepseek", deepseekHeavy)],
+      [t("openai", openaiHeavy), t("anthropic", claudeHeavy)]
+    ];
+  }
+
+  // Raharaha maivana
+  return [
+    [t("groq", MODEL_LIGHT)],
+    [t("groq", MODEL_HEAVY)],
+    [t("groq", MODEL_SECOND)],
+    [t("gemini", geminiLight), t("mistral", mistralLight)],
+    [t("openrouter", openrouterLight)],
+    [t("deepseek", deepseekLight)],
+    [t("openai", openaiLight), t("anthropic", claudeLight)]
+  ];
+}
+
+// ------------------------------------------------------------
+// COOLDOWN (circuit breaker): AI tsy mandeha dia atsoina vetivety
+// ------------------------------------------------------------
+
+const COOLDOWNS = new Map();
+const LAST_ERRORS = new Map();
+
+function isCooling(target) {
+  const now = Date.now();
+  return (
+    (COOLDOWNS.get("p|" + target.provider) || 0) > now ||
+    (COOLDOWNS.get("m|" + target.provider + "|" + target.model) || 0) > now
+  );
+}
+
+function coolRule(status) {
+  if (status === 429) return { ms: 60000, scope: "model" };
+  if (status === 401 || status === 402 || status === 403) return { ms: 600000, scope: "provider" };
+  if (status === 404) return { ms: 600000, scope: "model" };
+  if (status === 0 || status === 408 || status >= 500) return { ms: 30000, scope: "model" };
+  return { ms: 20000, scope: "model" };
+}
+
+function markFailed(target, error) {
+  const status = Number(error?.status || 0);
+  const rule = coolRule(status);
+
+  let ms = rule.ms;
+  let scope = rule.scope;
+
+  if (error?.retryAfter) {
+    ms = Math.min(Math.max(ms, error.retryAfter * 1000), 15 * 60 * 1000);
+  }
+
+  // OpenRouter: lany ny fetra isan'andro (50 na 1000) -> atsoina adiny iray
+  if (
+    target.provider === "openrouter" &&
+    status === 429 &&
+    /per[- ]day|free-models/i.test(String(error?.message || ""))
+  ) {
+    ms = 60 * 60 * 1000;
+    scope = "provider";
+  }
+
+  const key =
+    scope === "provider"
+      ? "p|" + target.provider
+      : "m|" + target.provider + "|" + target.model;
+
+  COOLDOWNS.set(key, Date.now() + ms);
+  LAST_ERRORS.set(target.provider, { model: target.model, status, at: Date.now() });
+}
+
+function providersStatus(env) {
+  const now = Date.now();
+  const out = {};
+
+  for (const [name, provider] of Object.entries(PROVIDERS)) {
+    let wait = 0;
+
+    for (const [key, until] of COOLDOWNS.entries()) {
+      if (key === "p|" + name || key.startsWith("m|" + name + "|")) {
+        wait = Math.max(wait, until - now);
+      }
+    }
+
+    out[name] = {
+      configured: Boolean(env[provider.keyEnv]),
+      cooldown_seconds: Math.max(0, Math.ceil(wait / 1000)),
+      last_error: LAST_ERRORS.get(name) || null
+    };
+  }
+
+  return out;
+}
+
+// ------------------------------------------------------------
+// FANAMPIANA: hafatra sy sary
+// ------------------------------------------------------------
+
+class ProviderError extends Error {
+  constructor(message, status = 0, retryAfter = 0) {
+    super(message);
+    this.status = status;
+    this.retryAfter = retryAfter;
+  }
+}
+
+function textOf(content) {
+  if (typeof content === "string") return content;
+
+  if (Array.isArray(content)) {
+    return content
+      .filter(part => part && part.type === "text")
+      .map(part => part.text || "")
+      .join("\n");
+  }
+
+  return "";
+}
+
+// Atambatra ho system message iray ny system rehetra (mifanaraka amin'ny AI rehetra)
+function mergeSystem(messages) {
+  const system = [];
+  const rest = [];
+
+  for (const message of messages || []) {
+    if (message && message.role === "system") {
+      const text = textOf(message.content);
+      if (text) system.push(text);
+    } else if (message) {
+      rest.push(message);
+    }
+  }
+
+  return system.length
+    ? [{ role: "system", content: system.join("\n\n") }, ...rest]
+    : rest;
+}
+
+function toAnthropicBlocks(content) {
+  if (typeof content === "string") {
+    return content.trim() ? [{ type: "text", text: content }] : [];
+  }
+
+  const blocks = [];
+
+  for (const part of Array.isArray(content) ? content : []) {
+    if (!part) continue;
+
+    if (part.type === "text" && String(part.text || "").trim()) {
+      blocks.push({ type: "text", text: part.text });
+    }
+
+    if (part.type === "image_url") {
+      const url = typeof part.image_url === "string" ? part.image_url : part.image_url?.url;
+      const match = String(url || "").match(/^data:([^;]+);base64,(.+)$/);
+
+      if (match) {
+        blocks.push({
+          type: "image",
+          source: { type: "base64", media_type: match[1], data: match[2] }
+        });
+      }
+    }
+  }
+
+  return blocks;
+}
+
+function toAnthropic(messages) {
+  const system = [];
+  const out = [];
+
+  for (const message of messages || []) {
+    if (!message) continue;
+
+    if (message.role === "system") {
+      const text = textOf(message.content);
+      if (text) system.push(text);
+      continue;
+    }
+
+    if (message.role !== "user" && message.role !== "assistant") continue;
+
+    const blocks = toAnthropicBlocks(message.content);
+    if (!blocks.length) continue;
+
+    const last = out[out.length - 1];
+
+    if (last && last.role === message.role) {
+      last.content = last.content.concat(blocks);
+    } else {
+      out.push({ role: message.role, content: blocks });
+    }
+  }
+
+  while (out.length && out[0].role !== "user") out.shift();
+
+  return { system: system.join("\n\n"), messages: out };
+}
+
+// ------------------------------------------------------------
+// FANGATAHANA HTTP + FIDIRANA AMIN'NY AI TSIRAIRAY
+// ------------------------------------------------------------
+
+async function postJson(url, headers, body) {
+  let response;
+
+  try {
+    response = await fetch(url, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(ATTEMPT_TIMEOUT_MS)
+    });
+  } catch (error) {
+    const timeout = error?.name === "TimeoutError" || error?.name === "AbortError";
+    throw new ProviderError(timeout ? "Timeout" : "Network error", timeout ? 408 : 0);
+  }
+
+  const raw = await response.text().catch(() => "");
+
+  let data = null;
+  try {
+    data = JSON.parse(raw);
+  } catch {
+    data = null;
+  }
+
+  if (!response.ok) {
+    const detail =
+      data?.error?.message || data?.message || raw.slice(0, 200) || "Unknown error";
+
+    throw new ProviderError(
+      String(detail).slice(0, 300),
+      response.status,
+      parseFloat(response.headers.get("retry-after")) || 0
+    );
+  }
+
+  if (!data || typeof data !== "object") {
+    throw new ProviderError("Invalid JSON", 502);
+  }
+
+  return data;
+}
+
+async function callOpenAICompat(target, payload, env) {
+  const provider = PROVIDERS[target.provider];
+
+  const body = {
+    model: target.model,
+    messages: mergeSystem(payload.messages)
+  };
+
+  if (!provider.noTemperature && typeof payload.temperature === "number") {
+    body.temperature = payload.temperature;
+  }
+
+  if (payload.max_completion_tokens) {
+    body[provider.tokenParam] = payload.max_completion_tokens;
+  }
+
+  if (payload.reasoning_effort) {
+    const gptOssOnGroq = target.provider === "groq" && target.model.includes("gpt-oss");
+    const gemini = target.provider === "gemini";
+    const openaiReasoning = target.provider === "openai" && /^(gpt-5|o\d)/.test(target.model);
+
+    if (gptOssOnGroq || gemini || openaiReasoning) {
+      body.reasoning_effort = payload.reasoning_effort;
+    }
+  }
+
+  if (target.provider === "deepseek") {
+    body.thinking = { type: envText(env, "DEEPSEEK_THINKING", "disabled") };
+  }
+
+  const data = await postJson(
+    provider.url,
+    {
+      "Content-Type": "application/json",
+      "Authorization": "Bearer " + env[provider.keyEnv],
+      "User-Agent": "GILARIS-AI/1.0"
+    },
+    body
+  );
+
+  const answer = data?.choices?.[0]?.message?.content;
+
+  if (typeof answer !== "string" || !answer.trim()) {
+    throw new ProviderError("Empty answer", 502);
+  }
+
+  const usage = data.usage || {};
+
+  return {
+    answer: answer.trim(),
+    model: target.provider + "/" + (data.model || target.model),
+    usage: {
+      prompt_tokens: Number(usage.prompt_tokens || 0),
+      completion_tokens: Number(usage.completion_tokens || 0),
+      total_tokens: Number(usage.total_tokens || 0)
+    }
+  };
+}
+
+async function callAnthropic(target, payload, env) {
+  const provider = PROVIDERS.anthropic;
+  const converted = toAnthropic(payload.messages);
+
+  if (!converted.messages.length) {
+    throw new ProviderError("Empty messages", 400);
+  }
+
+  const body = {
+    model: target.model,
+    max_tokens: payload.max_completion_tokens || 1024,
+    messages: converted.messages
+  };
+
+  if (converted.system) body.system = converted.system;
+
+  const data = await postJson(
+    provider.url,
+    {
+      "Content-Type": "application/json",
+      "x-api-key": env[provider.keyEnv],
+      "anthropic-version": "2023-06-01",
+      "User-Agent": "GILARIS-AI/1.0"
+    },
+    body
+  );
+
+  const answer = (Array.isArray(data.content) ? data.content : [])
+    .filter(block => block && block.type === "text")
+    .map(block => block.text || "")
+    .join("")
+    .trim();
+
+  if (!answer) throw new ProviderError("Empty answer", 502);
+
+  const input = Number(data.usage?.input_tokens || 0);
+  const output = Number(data.usage?.output_tokens || 0);
+
+  return {
+    answer,
+    model: "anthropic/" + (data.model || target.model),
+    usage: {
+      prompt_tokens: input,
+      completion_tokens: output,
+      total_tokens: input + output
+    }
+  };
+}
+
+function callProvider(target, payload, env) {
+  return PROVIDERS[target.provider].kind === "anthropic"
+    ? callAnthropic(target, payload, env)
+    : callOpenAICompat(target, payload, env);
+}
+
+// ------------------------------------------------------------
+// ORCHESTRATOR: mifidy ny AI, manao failover, ary load balancing
+// ------------------------------------------------------------
+
+function orderGroup(group, env) {
+  if (envText(env, "LB_MODE", "balanced") === "priority" || group.length < 2) {
+    return group.slice();
+  }
+
+  const start = Math.floor(Math.random() * group.length);
+  return group.slice(start).concat(group.slice(0, start));
+}
+
+function buildCandidates(chainName, env) {
+  const ready = [];
+  const cooling = [];
+
+  for (const group of buildGroups(chainName, env)) {
+    for (const target of orderGroup(group, env)) {
+      if (!env[PROVIDERS[target.provider].keyEnv]) continue;
+      (isCooling(target) ? cooling : ready).push(target);
+    }
+  }
+
+  // Ny AI voatsoka vetivety dia atao farany (fanandramana farany)
+  return ready.concat(cooling);
+}
+
+async function aiWithFallback(chainName, payload, env) {
+  const candidates = buildCandidates(chainName, env).slice(0, MAX_ATTEMPTS);
+
+  if (!candidates.length) {
+    throw new APIError(
+      "Tsy mbola voapetraka ny API key ho an'ny AI (GROQ_API_KEY, GEMINI_API_KEY, MISTRAL_API_KEY...).",
+      500
+    );
+  }
+
+  for (const target of candidates) {
+    try {
+      const result = await callProvider(target, payload, env);
+
+      const cleaned = result.answer
+        .replace(/<think>[\s\S]*?<\/think>/gi, "")
+        .trim();
+
+      if (cleaned) result.answer = cleaned;
+
+      return result;
+    } catch (error) {
+      markFailed(target, error);
+
+      console.warn(
+        "[GILARIS FAILOVER]",
+        target.provider,
+        target.model,
+        error?.status || 0,
+        String(error?.message || "").slice(0, 120)
+      );
+    }
+  }
+
+  throw new APIError(
+    "Reraka ny AI rehetra amin'izao fotoana izao. Andramo indray afaka kelikely.",
+    503
+  );
+}
+
+// Ho an'ny toerana efa niantsoana ny anarana taloha
+const groqWithFallback = aiWithFallback;
+
+// ============================================================
+// FIZARANA ASA (MODEL ROUTING: light / heavy)
+// ============================================================
 
 const HEAVY_RE = new RegExp(
   "(bug|erreur|error|exception|debug|d[eé]boguer|traceback|stack ?trace|" +
@@ -61,51 +586,6 @@ function pickModelProfile(message, searched, forceLight) {
     reasoning_effort: "low",
     max_completion_tokens: 900
   };
-}
-
-function isRetryableError(error) {
-  if (!(error instanceof APIError)) return false;
-
-  if (/fahazoan-dalana|GROQ_API_KEY/i.test(error.message)) return false;
-
-  return (
-    error.status === 502 ||
-    error.status === 503 ||
-    error.status === 504
-  );
-}
-
-async function groqWithFallback(chain, payload, env) {
-  let lastError = null;
-
-  for (const model of chain) {
-    const body = { ...payload, model };
-
-    // reasoning_effort dia ho an'ny modely gpt-oss ihany
-    if (!model.includes("gpt-oss")) {
-      delete body.reasoning_effort;
-    }
-
-    try {
-      const result = await groqRequest(body, env);
-
-      const cleaned = result.answer
-        .replace(/<think>[\s\S]*?<\/think>/gi, "")
-        .trim();
-
-      if (cleaned) result.answer = cleaned;
-
-      return result;
-    } catch (error) {
-      lastError = error;
-
-      if (!isRetryableError(error)) throw error;
-
-      console.warn("[GILARIS FALLBACK]", model, error.message);
-    }
-  }
-
-  throw lastError;
 }
 
 const MAX_BODY = 15 * 1024 * 1024;
@@ -1020,8 +1500,7 @@ function extractImage(dataUrl) {
 async function analyzeImage(dataUrl, env) {
   const { imageData } = extractImage(dataUrl);
 
-  const first = await groqRequest({
-    model: VISION_MODEL,
+  const first = await aiWithFallback(VISION_CHAIN, {
     messages: [{
       role: "user",
       content: [
@@ -1038,7 +1517,8 @@ async function analyzeImage(dataUrl, env) {
       ]
     }],
     temperature: 0,
-    max_completion_tokens: 1100
+    reasoning_effort: "low",
+    max_completion_tokens: 1400
   }, env);
 
   const second = await groqWithFallback(LIGHT_CHAIN, {
@@ -1835,21 +2315,12 @@ async function answerText(message, history, env, plain = false) {
 
     quick.push({ role: "user", content: message });
 
-    const quickPayload = {
+    const quickResult = await aiWithFallback(LIGHT_CHAIN, {
       messages: quick,
       temperature: 0.7,
       reasoning_effort: "low",
       max_completion_tokens: 700
-    };
-
-    let quickResult;
-
-    try {
-      quickResult = await groqRequest({ model: TEXT_MODEL, ...quickPayload }, env);
-    } catch (error) {
-      if (!error?.rateLimited) throw error;
-      quickResult = await groqRequest({ model: FALLBACK_MODEL, ...quickPayload }, env);
-    }
+    }, env);
 
     return {
       reply: quickResult.answer,
@@ -2090,6 +2561,13 @@ export default {
           );
         }
       }
+
+      if (url.pathname === "/api/providers") {
+        return jsonResponse(200, {
+          success: true,
+          providers: providersStatus(env)
+        });
+            }
 
       return jsonResponse(404, {
         error: "Route tsy hita."
