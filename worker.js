@@ -1793,28 +1793,23 @@ async function getWeatherContext(message) {
 // ============================================================
 
 async function answerText(message, history, env, plain = false) {
-
   // Mode "plain" : outils du site (CV, rédaction, traduction, résumé, tuteur, planning).
   // Prompt court, sans personnalité ni recherche web => beaucoup moins de tokens.
   if (plain) {
     const needsMath = /(fraction|[eé]quation|maths?|physique|kajy|calcul|professeur patient)/i.test(message);
-    const profile = pickModelProfile(message, false, false);
+    const profile = pickModelProfile(message, true, false);
+    const lightTask = /(donne UNIQUEMENT la traduction|résume fidèlement|écris UNIQUEMENT le texte demandé)/i.test(message);
+    const chain = lightTask ? LIGHT_CHAIN : profile.chain;
 
-    const quickPayload = {
-      messages: quick,
-      temperature: 0.7,
-      reasoning_effort: "low",
-      max_completion_tokens: 700
-    };
-
-    let quickResult;
-
-    try {
-      quickResult = await groqRequest({ model: TEXT_MODEL, ...quickPayload }, env);
-    } catch (error) {
-      if (!error?.rateLimited) throw error;
-      quickResult = await groqRequest({ model: FALLBACK_MODEL, ...quickPayload }, env);
-    }
+    const result = await groqWithFallback(chain, {
+      messages: [
+        { role: "system", content: PLAIN_PROMPT },
+        { role: "user", content: message }
+      ],
+      temperature: 0.4,
+      reasoning_effort: needsMath ? "medium" : "low",
+      max_completion_tokens: profile.max_completion_tokens
+    }, env);
 
     return {
       reply: result.answer,
@@ -1828,8 +1823,8 @@ async function answerText(message, history, env, plain = false) {
       usage: result.usage
     };
   }
-  
-  // Fiarahabana / fisaorana tsotra: token vitsy ihany (tsy mampiasa ny fitsipika be)
+
+  // Fiarahabana / fisaorana tsotra: token vitsy ...
   if (isSimpleChat(message)) {
     const quick = [{ role: "system", content: TINY_PROMPT }];
 
