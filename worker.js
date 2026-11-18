@@ -541,7 +541,7 @@ async function aiWithFallback(chainName, payload, env) {
 }
 
 // Ho an'ny toerana efa niantsoana ny anarana taloha
-const aiWithFallback = groqWithFallback;
+const groqWithFallback = aiWithFallback;
 
 // ============================================================
 // FIZARANA ASA (MODEL ROUTING: light / heavy)
